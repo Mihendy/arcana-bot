@@ -1,6 +1,6 @@
 """Application settings loaded from environment variables."""
 
-from typing import Literal
+from pathlib import Path
 
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,10 +23,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     bot_token: str = "replace-with-real-bot-token"
-    bot_mode: Literal["polling", "webhook"] = "polling"
-    webhook_base_url: str = "https://example.com"
-    webhook_path: str = "/telegram/webhook"
-    webhook_secret_token: str = ""
+    telegram_proxy: str = ""
+    openrouter_api_key: str = ""
+    openrouter_model: str = "openai/gpt-4o-mini"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_timeout_seconds: float = 30.0
+    cards_assets_dir: str = "app/assets/cards"
+    fonts_assets_dir: str = "app/assets/fonts"
+    output_dir: str = "data/output"
 
     db_host: str = "db"
     db_port: int = 5432
@@ -54,9 +58,20 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def webhook_url(self) -> str:
-        """Full webhook URL for Telegram."""
-        return f"{self.webhook_base_url.rstrip('/')}/{self.webhook_path.lstrip('/')}"
+    def cards_assets_path(self) -> Path:
+        """Absolute path to tarot card image assets."""
+        return (Path(__file__).resolve().parents[2] / self.cards_assets_dir).resolve()
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def fonts_assets_path(self) -> Path:
+        """Absolute path to font assets."""
+        return (Path(__file__).resolve().parents[2] / self.fonts_assets_dir).resolve()
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def output_dir_path(self) -> Path:
+        """Absolute path to generated spread output directory."""
+        return (Path(__file__).resolve().parents[2] / self.output_dir).resolve()
 
 settings = Settings()

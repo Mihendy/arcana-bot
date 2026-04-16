@@ -28,8 +28,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "${APP_PORT:-8000}:8000"
+    network_mode: host
     command: >
       uv run uvicorn app.main:app --host ${APP_HOST:-0.0.0.0} --port ${APP_PORT:-8000}
 
