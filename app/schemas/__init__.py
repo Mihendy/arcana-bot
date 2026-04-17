@@ -1,5 +1,5 @@
 """Pydantic schemas."""
 
-from app.schemas.tarot import SpreadCard
+from app.schemas.tarot import SpreadCard, SpreadResult, SpreadType
 
-__all__ = ["SpreadCard"]
+__all__ = ["SpreadCard", "SpreadResult", "SpreadType"]

@@ -10,6 +10,14 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health")
 async def healthcheck() -> dict[str, str]:
+    """Return API and database health status.
+
+    Returns:
+        dict[str, str]: Service status payload for monitoring checks.
+
+    Raises:
+        HTTPException: If database connectivity check fails.
+    """
     is_db_healthy = await check_db_health()
     if not is_db_healthy:
         raise HTTPException(
