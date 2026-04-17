@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Global settings for API, bot, and database."""
+    """Global settings for API, bot, external integrations and storage."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     log_level: str = "INFO"
+    logs_dir: str = "logs"
+    admin_tg_id: int = 0
 
     bot_token: str = "replace-with-real-bot-token"
     telegram_proxy: str = ""
@@ -41,7 +43,11 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:
-        """Async SQLAlchemy DSN for PostgreSQL."""
+        """Build async SQLAlchemy DSN for PostgreSQL.
+
+        Returns:
+            str: Async database URL for runtime engine.
+        """
         return (
             f"postgresql+asyncpg://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
@@ -50,7 +56,11 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def alembic_database_url(self) -> str:
-        """Sync DSN often used by Alembic migrations."""
+        """Build sync DSN for Alembic migrations.
+
+        Returns:
+            str: Synchronous PostgreSQL URL for migrations.
+        """
         return (
             f"postgresql://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
@@ -59,19 +69,41 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def cards_assets_path(self) -> Path:
-        """Absolute path to tarot card image assets."""
+        """Resolve absolute path to tarot card image assets.
+
+        Returns:
+            Path: Cards assets directory path.
+        """
         return (Path(__file__).resolve().parents[2] / self.cards_assets_dir).resolve()
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def fonts_assets_path(self) -> Path:
-        """Absolute path to font assets."""
+        """Resolve absolute path to fonts assets directory.
+
+        Returns:
+            Path: Fonts assets directory path.
+        """
         return (Path(__file__).resolve().parents[2] / self.fonts_assets_dir).resolve()
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def output_dir_path(self) -> Path:
-        """Absolute path to generated spread output directory."""
+        """Resolve absolute path to generated spread output directory.
+
+        Returns:
+            Path: Output directory for generated files.
+        """
         return (Path(__file__).resolve().parents[2] / self.output_dir).resolve()
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def logs_dir_path(self) -> Path:
+        """Resolve absolute path to logs directory.
+
+        Returns:
+            Path: Logs directory path.
+        """
+        return (Path(__file__).resolve().parents[2] / self.logs_dir).resolve()
 
 settings = Settings()

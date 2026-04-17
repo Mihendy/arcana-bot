@@ -16,13 +16,21 @@ SessionLocal = async_sessionmaker(
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Yield async DB session for request scope."""
+    """Yield request-scoped async database session.
+
+    Yields:
+        AsyncSession: Open SQLAlchemy async session bound to the app engine.
+    """
     async with SessionLocal() as session:
         yield session
 
 
 async def check_db_health() -> bool:
-    """Return True when database is reachable."""
+    """Check database connectivity with a lightweight query.
+
+    Returns:
+        bool: ``True`` if the database responds to ``SELECT 1``, otherwise ``False``.
+    """
     try:
         async with SessionLocal() as session:
             await session.execute(text("SELECT 1"))

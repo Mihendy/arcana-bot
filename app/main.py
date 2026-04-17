@@ -13,7 +13,18 @@ from app.services.tarot_data import tarot_data_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Manage telegram polling startup and shutdown."""
+    """Manage application startup/shutdown lifecycle.
+
+    Args:
+        app: FastAPI application instance.
+
+    Yields:
+        None: Control is yielded to FastAPI runtime while app is running.
+
+    Raises:
+        FileNotFoundError: If tarot card assets are missing.
+        RuntimeError: If Telegram polling service fails to start.
+    """
     configure_logging()
     settings.output_dir_path.mkdir(parents=True, exist_ok=True)
     tarot_data_service.verify_assets()
