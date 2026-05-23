@@ -1,20 +1,4 @@
 services:
-  minio:
-    image: minio/minio:latest
-    container_name: arcana-bot-minio
-    restart: unless-stopped
-    environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
-    ports:
-      - "127.0.0.1:9000:9000"   # S3 API  — only reachable from this host
-      - "127.0.0.1:9001:9001"   # MinIO console
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio_data:/data
-    networks:
-      - arcana-net
-
   db:
     image: postgres:15-alpine
     container_name: arcana-bot-db
@@ -46,8 +30,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      minio:
-        condition: service_started
     ports:
       - "127.0.0.1:8000:8000"   # Nginx reverse proxy only
     networks:
@@ -59,4 +41,3 @@ networks:
 
 volumes:
   postgres_data:
-  minio_data:

@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     openrouter_model: str = "openai/gpt-4o-mini"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_timeout_seconds: float = 30.0
-    premium_price_stars: int = 1
+    premium_price_stars: int = 79
     premium_price_rub: int = 159
 
     cards_assets_dir: str = "app/assets/cards"
