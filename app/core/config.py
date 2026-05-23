@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import computed_field
+from pydantic import AliasChoices, Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,6 +23,41 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     logs_dir: str = "logs"
     admin_tg_id: int = 0
+    daily_card_hour_msk: int = 6
+    daily_card_timezone: str = "Europe/Moscow"
+    bot_public_url: str = "https://t.me/arcana_r_bot"
+    api_public_base_url: str = "https://2e95-154-219-201-33.ngrok-free.app"
+    s3_endpoint_url: str = Field(
+        default="http://127.0.0.1:9000",
+        validation_alias=AliasChoices("S3_ENDPOINT_URL", "MINIO_ENDPOINT"),
+    )
+    s3_public_base_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("S3_PUBLIC_BASE_URL"),
+    )
+    s3_access_key: str = Field(
+        default="minioadmin",
+        validation_alias=AliasChoices("S3_ACCESS_KEY", "MINIO_ACCESS_KEY"),
+    )
+    s3_secret_key: str = Field(
+        default="minioadmin",
+        validation_alias=AliasChoices("S3_SECRET_KEY", "MINIO_SECRET_KEY"),
+    )
+    s3_bucket: str = Field(
+        default="arcana-media",
+        validation_alias=AliasChoices("S3_BUCKET", "MINIO_BUCKET"),
+    )
+    s3_region: str = Field(
+        default="us-east-1",
+        validation_alias=AliasChoices("S3_REGION", "MINIO_REGION"),
+    )
+    s3_use_ssl: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("S3_USE_SSL", "MINIO_SECURE"),
+    )
+
+    yookassa_shop_id: str = ""
+    yookassa_secret_key: str = ""
 
     bot_token: str = "replace-with-real-bot-token"
     telegram_proxy: str = ""
@@ -30,6 +65,9 @@ class Settings(BaseSettings):
     openrouter_model: str = "openai/gpt-4o-mini"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_timeout_seconds: float = 30.0
+    premium_price_stars: int = 1
+    premium_price_rub: int = 159
+
     cards_assets_dir: str = "app/assets/cards"
     fonts_assets_dir: str = "app/assets/fonts"
     output_dir: str = "data/output"

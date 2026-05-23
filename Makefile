@@ -122,6 +122,12 @@ migrate-down-docker: check-env ## Rollback one migration inside app container
 migrate-current-docker: check-env ## Show current migration in app container
 	$(COMPOSE) exec app uv run alembic current
 
+reset-limits: check-env ## Reset daily_limit=3 for all users locally
+	$(PY) -m app.infrastructure.db.scripts.reset_daily_limits
+
+reset-limits-docker: check-env ## Reset daily_limit=3 for all users inside app container
+	$(COMPOSE) exec -T app uv run python -m app.infrastructure.db.scripts.reset_daily_limits
+
 deploy: check-env ## Build, start stack and apply migrations
 	$(COMPOSE) up -d --build
 	$(COMPOSE) exec app uv run alembic upgrade head

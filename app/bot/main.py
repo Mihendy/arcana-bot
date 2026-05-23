@@ -1,21 +1,27 @@
 """Python Telegram Bot initialization helpers."""
 
+import asyncio
 import logging
 import sys
+from contextlib import suppress
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from dishka import AsyncContainer, make_async_container
 from loguru import logger as loguru_logger
-from telegram import BotCommand
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.error import TelegramError
 from telegram.ext import Application
 from telegram.request import HTTPXRequest
 
-from app.bot.handlers import get_handlers
 from app.core.config import settings
+from app.infrastructure.di.providers import InfraProvider, SessionProvider
+from app.presentation.telegram.di import store_container
+from app.presentation.telegram.handlers.daily_card import DailyCardBroadcaster
+from app.presentation.telegram.handlers.router import get_handlers
 
 logger = logging.getLogger(__name__)
-REQUEST_TIMEOUT_SECONDS = 20.0
 DEFAULT_BOT_COMMANDS = [
     BotCommand(command="start", description="Начать работу с ботом"),
     BotCommand(command="admin_stats", description="Админ-метрики"),
@@ -26,11 +32,6 @@ class InterceptHandler(logging.Handler):
     """Redirect standard logging records to Loguru."""
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Forward standard ``logging`` records to Loguru.
-
-        Args:
-            record: Python logging record.
-        """
         try:
             level: str | int = loguru_logger.level(record.levelname).name
         except ValueError:
@@ -39,11 +40,7 @@ class InterceptHandler(logging.Handler):
 
 
 def configure_logging() -> None:
-    """Configure application logging sinks and interception.
-
-    Returns:
-        None: This function configures global logging state in-place.
-    """
+    """Configure application logging sinks and interception."""
     settings.logs_dir_path.mkdir(parents=True, exist_ok=True)
     loguru_logger.remove()
     loguru_logger.add(
@@ -69,12 +66,13 @@ def configure_logging() -> None:
         logging.getLogger(logger_name).propagate = False
 
 
-def _create_telegram_app() -> Application:
-    """Build Telegram ``Application`` instance for polling mode.
+def build_container() -> AsyncContainer:
+    """Create and return the application-level DI container."""
+    return make_async_container(InfraProvider(), SessionProvider())
 
-    Returns:
-        Application: Configured telegram application with handlers.
-    """
+
+def _create_telegram_app(container: AsyncContainer) -> Application:
+    """Build and configure the PTB Application with the DI container wired in."""
     request_kwargs: dict[str, Any] = {
         "connect_timeout": 20.0,
         "read_timeout": 20.0,
@@ -94,55 +92,35 @@ def _create_telegram_app() -> Application:
         .post_init(set_bot_commands)
         .build()
     )
+    store_container(app.bot_data, container)
     for handler in get_handlers():
         app.add_handler(handler)
     return app
 
 
 async def set_bot_commands(application: Application) -> None:
-    """Register default command list in Telegram client menu.
-
-    Args:
-        application: Initialized Telegram application instance.
-    """
+    """Register default command list in Telegram client menu."""
     await application.bot.set_my_commands(DEFAULT_BOT_COMMANDS)
 
 
 class TelegramPollingService:
     """Encapsulates telegram polling startup/shutdown lifecycle."""
 
-    def __init__(self) -> None:
-        """Create polling service with error handlers pre-registered."""
-        self.app = _create_telegram_app()
+    def __init__(self, container: AsyncContainer) -> None:
+        self._container = container
+        self._broadcaster = DailyCardBroadcaster(container, settings)
+        self.app = _create_telegram_app(container)
         self.app.add_error_handler(self._on_handler_error)
+        self._daily_card_task: asyncio.Task[None] | None = None
 
-    async def _on_handler_error(
-        self,
-        update: object | None,
-        context: Any,
-    ) -> None:
-        """Log unhandled exceptions raised by telegram handlers.
-
-        Args:
-            update: Telegram update that caused the failure.
-            context: PTB callback context containing the error object.
-        """
+    async def _on_handler_error(self, update: object | None, context: Any) -> None:
         logger.exception("Telegram handler error. update=%s", update, exc_info=context.error)
 
     def _on_polling_error(self, error: TelegramError) -> None:
-        """Log polling-level transport errors.
-
-        Args:
-            error: Telegram polling exception object.
-        """
         logger.exception("Telegram polling error: %s", error, exc_info=error)
 
     async def run_polling(self) -> None:
-        """Initialize telegram app and start polling updates.
-
-        Raises:
-            RuntimeError: If internal PTB updater is unavailable.
-        """
+        """Initialize telegram app and start polling updates."""
         await self.app.initialize()
         if self.app.updater is None:
             raise RuntimeError("Telegram updater is not initialized.")
@@ -152,12 +130,47 @@ class TelegramPollingService:
             error_callback=self._on_polling_error,
         )
         await self.app.start()
+        self._start_daily_card_schedule()
         logger.info("Bot started in polling mode")
 
     async def stop_polling(self) -> None:
-        """Stop polling loop and gracefully shutdown telegram app."""
+        """Stop polling loop, shutdown the PTB app, and close the DI container."""
+        await self._stop_daily_card_schedule()
         if self.app.updater is not None:
             await self.app.updater.stop()
         await self.app.stop()
         await self.app.shutdown()
+        await self._container.close()  # disposes AsyncEngine + all APP-scoped resources
         logger.info("Bot stopped")
+
+    def _start_daily_card_schedule(self) -> None:
+        if self._daily_card_task is not None and not self._daily_card_task.done():
+            return
+        self._daily_card_task = asyncio.create_task(self._daily_card_loop())
+
+    async def _stop_daily_card_schedule(self) -> None:
+        if self._daily_card_task is None:
+            return
+        self._daily_card_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await self._daily_card_task
+        self._daily_card_task = None
+
+    async def _daily_card_loop(self) -> None:
+        """Run daily card delivery loop at configured Moscow time."""
+        tz = ZoneInfo(settings.daily_card_timezone)
+        target_hour = min(max(settings.daily_card_hour_msk, 0), 23)
+        while True:
+            delay = self._seconds_until_next_run(tz=tz, target_hour=target_hour)
+            await asyncio.sleep(delay)
+            try:
+                await self._broadcaster.broadcast(self.app)
+            except Exception:
+                logger.exception("Failed to send daily card broadcast.")
+
+    def _seconds_until_next_run(self, tz: ZoneInfo, target_hour: int) -> float:
+        now = datetime.now(tz)
+        run_at = now.replace(hour=target_hour, minute=0, second=0, microsecond=0)
+        if run_at <= now:
+            run_at = run_at + timedelta(days=1)
+        return max((run_at - now).total_seconds(), 1.0)

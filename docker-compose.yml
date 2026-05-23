@@ -1,4 +1,20 @@
 services:
+  minio:
+    image: minio/minio:latest
+    container_name: arcana-bot-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    ports:
+      - "127.0.0.1:9000:9000"   # S3 API  — only reachable from this host
+      - "127.0.0.1:9001:9001"   # MinIO console
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - arcana-net
+
   db:
     image: postgres:15-alpine
     container_name: arcana-bot-db
@@ -8,7 +24,7 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"   # localhost-only — for local psql / Alembic
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,6 +32,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - arcana-net
 
   app:
     build:
@@ -28,9 +46,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    network_mode: host
-    command: >
-      uv run uvicorn app.main:app --host ${APP_HOST:-0.0.0.0} --port ${APP_PORT:-8000}
+      minio:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8000:8000"   # Nginx reverse proxy only
+    networks:
+      - arcana-net
+
+networks:
+  arcana-net:
+    driver: bridge
 
 volumes:
   postgres_data:
+  minio_data:

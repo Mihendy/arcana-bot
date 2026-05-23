@@ -7,8 +7,14 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import settings
-from app.models import Base  # noqa: F401 - imported for metadata discovery
-from app.models import llm_usage, reading, user  # noqa: F401 - ensure models are registered
+from app.infrastructure.db.models.base import InfraBase
+
+# Import every model module so their mappers are registered before autogenerate
+# compares metadata against the live DB schema.
+import app.infrastructure.db.models.user          # noqa: F401
+import app.infrastructure.db.models.platform_identity  # noqa: F401
+import app.infrastructure.db.models.reading        # noqa: F401
+import app.infrastructure.db.models.llm_usage      # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
@@ -16,7 +22,7 @@ config.set_main_option("sqlalchemy.url", settings.database_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = Base.metadata
+target_metadata = InfraBase.metadata
 
 
 def run_migrations_offline() -> None:

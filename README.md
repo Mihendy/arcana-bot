@@ -1,123 +1,161 @@
 # Arcana Bot
 
-Telegram-бот для генерации таро-раскладов с визуализацией карт, интерпретацией через LLM и хранением истории в PostgreSQL.  
-Приложение запускается как FastAPI-сервис и поднимает polling-бота через lifecycle приложения.
+Telegram-бот для таро-раскладов с визуализацией карт, интерпретацией через LLM, реферальной системой и платными подписками.  
+Запускается как единый FastAPI-процесс: бот работает в режиме polling через lifecycle приложения, вебхуки принимаются через HTTP-роуты.
 
-## Стек технологий
+## Стек
 
-- Python 3.12+
-- `uv` для управления зависимостями и запуска команд
-- FastAPI + Uvicorn
-- python-telegram-bot (polling mode)
-- SQLAlchemy 2.0 (async) + asyncpg
-- Alembic (миграции БД)
-- PostgreSQL 15+
-- Pillow (генерация изображений расклада)
-- Loguru (структурированное логирование и ротация)
-- OpenRouter API (интерпретация раскладов)
-- Docker + Docker Compose
+| Слой | Технологии |
+|---|---|
+| Язык | Python 3.12+, `uv` |
+| Web / Bot | FastAPI · Uvicorn · python-telegram-bot v22 (polling) |
+| БД | PostgreSQL 15 · SQLAlchemy 2.0 async · asyncpg · Alembic |
+| DI | dishka 1.x |
+| Изображения | Pillow |
+| LLM | OpenRouter API |
+| Хранилище | S3-совместимое (MinIO для self-hosted) |
+| Платежи | Telegram Stars · YooKassa |
+| Логирование | Loguru |
+| Инфра | Docker · Docker Compose · GitHub Actions |
 
-## Развертывание через Docker Compose
+## Архитектура
 
-### 1) Подготовка окружения
+Проект построен по принципам **Clean Architecture / Ports & Adapters**:
 
-1. Создайте файл `.env` в корне проекта.
-2. Заполните обязательные значения:
-   - `BOT_TOKEN`
-   - `OPENROUTER_API_KEY`
-   - параметры БД (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`)
-   - `ADMIN_TG_ID`
-
-### 2) Запуск контейнеров
-
-```bash
-docker compose up -d --build
 ```
-
-Или через `Makefile`:
-
-```bash
-make rebuild
-```
-
-### 3) Применение миграций
-
-В контейнере:
-
-```bash
-make migrate-docker
-```
-
-Локально:
-
-```bash
-make migrate
-```
-
-### 4) Проверка состояния
-
-- API healthcheck: `GET /health`
-- Логи приложения: `logs/bot.log`
-- Статистика для администратора: команда `/admin_stats` в Telegram
-
-## Структура проекта
-
-```text
 app/
-  api/            # HTTP-роуты (healthcheck)
-  bot/            # Telegram-слой: handlers, middleware, lifecycle
-  core/           # Конфигурация и инфраструктурные зависимости (DB, settings)
-  models/         # ORM-модели SQLAlchemy
-  repositories/   # Слой доступа к данным
-  schemas/        # Pydantic-схемы
-  services/       # Бизнес-логика (tarot, llm, image, analytics, storage)
-  assets/         # tarot_deck.json, изображения карт, шрифты
-
-alembic/          # Миграции БД
-data/output/      # Временное хранилище сгенерированных изображений
-logs/             # Логи приложения
+├── domain/           # Entities, Port-протоколы (чистая бизнес-логика, нет импортов инфры)
+├── application/      # Use cases, DTO, исключения
+├── infrastructure/   # Реализации портов: DB-репозитории, S3, LLM, платёжные шлюзы, DI-провайдеры
+├── presentation/
+│   └── telegram/     # Хэндлеры PTB, форматтеры, DI-биндинг контейнера
+├── api/              # FastAPI-роуты: healthcheck, вебхук YooKassa
+├── core/             # Settings (pydantic-settings)
+├── bot/              # Telegram-lifecycle: сборка PTB Application, polling, DI-wiring
+└── services/         # Вспомогательные синглтоны (ImageService, TarotDataService)
 ```
 
-## Архитектурные решения (Clean Architecture)
+**Правило зависимостей:** `domain` ← `application` ← `infrastructure` / `presentation`. Инфра знает о домене, домен не знает об инфре.
 
-Проект использует практичный вариант Clean Architecture с разделением на уровни:
+## Функциональность
 
-- **Presentation layer**  
-  `app/api` и `app/bot/handlers` принимают входящие запросы (HTTP/Telegram), валидируют поток и формируют ответы.
+- **Расклады** — 1, 3 и 5 карт; генерация изображения через Pillow; интерпретация через LLM; сохранение в S3
+- **Дневная карта** — ежедневная рассылка по расписанию МСК
+- **Лимиты** — 3 бесплатных расклада в день (сброс в полночь); бонусный баланс; атомарный CASE UPDATE без race condition
+- **Реферальная система** — deep-link `?start=ref_<id>`; +3 бонусных расклада рефереру при регистрации
+- **Профиль** — `/profile` или кнопка «👤 Профиль»: статус подписки, лимиты, реферальная ссылка
+- **Подписка Премиум** — 30 дней безлимита; оплата через Telegram Stars или YooKassa (карта); мгновенная активация
 
-- **Application layer**  
-  `app/services` реализуют сценарии: генерация расклада, запрос к LLM, сбор аналитики, рендер изображения.
+## Переменные окружения
 
-- **Domain contracts**  
-  Доменные структуры (`app/schemas`) и модели (`app/models`) описывают бизнес-сущности и контракт данных.
+```bash
+cp .env.example .env
+```
 
-- **Infrastructure layer**  
-  `app/core` (настройки, DB engine/session), `repositories` (доступ к БД), внешние интеграции (OpenRouter, Telegram, файловое хранилище).
+| Переменная | Обязательна | Описание |
+|---|---|---|
+| `BOT_TOKEN` | ✅ | Токен Telegram-бота |
+| `OPENROUTER_API_KEY` | ✅ | Ключ OpenRouter |
+| `DB_*` | ✅ | Параметры PostgreSQL |
+| `ADMIN_TG_ID` | ✅ | Telegram ID администратора |
+| `S3_*` | ✅ | S3/MinIO реквизиты |
+| `YOOKASSA_SHOP_ID` | для карт | ID магазина YooKassa |
+| `YOOKASSA_SECRET_KEY` | для карт | Секретный ключ YooKassa |
+| `PREMIUM_PRICE_STARS` | — | Цена в Stars (default: `79`) |
+| `PREMIUM_PRICE_RUB` | — | Цена в рублях (default: `159`) |
+| `BOT_PUBLIC_URL` | — | `https://t.me/<username>` — return_url для YooKassa |
 
-Ключевые принципы:
+> **Docker vs локальная разработка**  
+> В Docker: `DB_HOST=db`, `S3_ENDPOINT_URL=http://minio:9000`  
+> Локально: `DB_HOST=127.0.0.1`, `S3_ENDPOINT_URL=http://127.0.0.1:9000`
 
-- зависимости направлены из внешних слоев к внутренним абстракциям;
-- бизнес-логика изолирована в сервисах и не размазана по handlers;
-- доступ к данным инкапсулирован в репозиториях;
-- инфраструктурные детали (proxy, токены, пути, DSN) вынесены в конфиг.
+## Быстрый старт (Docker)
+
+```bash
+cp .env.example .env   # заполнить
+make rebuild           # собрать и поднять
+make migrate-docker    # применить миграции
+curl http://localhost:8000/health
+```
+
+## Команды Makefile
+
+```bash
+make help                  # полный список
+
+make run-dev               # локальный запуск с --reload
+make rebuild               # пересобрать и перезапустить Docker-стек
+make migrate-docker        # миграции внутри контейнера
+make logs-app              # логи приложения
+make shell-app             # bash в контейнере
+make reset-limits-docker   # сбросить daily_limit=3 для всех
+make health                # проверить /health
+```
+
+## Сброс дневных лимитов
+
+Скрипт `app/infrastructure/db/scripts/reset_daily_limits.py` сбрасывает `daily_limit = 3`. Запускай через cron каждую ночь в полночь МСК (21:00 UTC):
+
+```cron
+0 21 * * * docker exec arcana-bot-app uv run python -m app.infrastructure.db.scripts.reset_daily_limits
+```
+
+## Продакшн-деплой
+
+### Схема
+
+```
+Internet → Nginx (443 SSL) → 127.0.0.1:8000 → FastAPI (Docker)
+                                                     | arcana-net
+                                              PostgreSQL · MinIO
+```
+
+Все порты Docker-сервисов привязаны к `127.0.0.1` — снаружи недоступны.
+
+### CI/CD (GitHub Actions)
+
+Пуш в `main` → SSH на VM → `git pull` → `make rebuild`. Конфиг: [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
+
+Секреты репозитория (**Settings → Secrets → Actions**):
+
+| Секрет | Значение |
+|---|---|
+| `SSH_HOST` | IP или домен VM |
+| `SSH_USER` | SSH-пользователь |
+| `SSH_KEY` | Приватный SSH-ключ |
+| `DEPLOY_PATH` | Путь к папке проекта на VM |
+
+### Nginx
+
+Готовый конфиг: [`nginx/arcana-bot.conf`](nginx/arcana-bot.conf).  
+Uvicorn запускается с `--proxy-headers`, поэтому FastAPI и вебхук YooKassa видят реальные IP клиентов.
+
+```bash
+cp nginx/arcana-bot.conf /etc/nginx/sites-available/arcana-bot.conf
+ln -s /etc/nginx/sites-available/arcana-bot.conf /etc/nginx/sites-enabled/
+certbot --nginx -d api.yourdomain.ru
+nginx -t && systemctl reload nginx
+```
+
+### Вебхук YooKassa
+
+В личном кабинете YooKassa укажи URL нотификации:
+
+```
+https://api.yourdomain.ru/api/v1/payments/yookassa/webhook
+```
 
 ## Локальная разработка
 
 ```bash
 uv sync
-uv run uvicorn app.main:app --reload
-```
-
-Полезные команды:
-
-```bash
-make run-dev
+make run-dev    # или: uv run uvicorn app.main:app --reload
 make migrate
-uv run mypy app
 ```
 
 ## Наблюдаемость
 
-- Логи пишутся в `logs/bot.log` с ротацией и retention.
-- Каждое обращение к LLM фиксируется как событие в таблице `llm_usage_events`.
-- Базовые метрики доступны через SQL-агрегации (`AnalyticsService`) и команду `/admin_stats`.
+- Логи: `logs/bot.log`, ротация 10 МБ, retention 30 дней
+- Каждый вызов LLM фиксируется в таблице `llm_usage_events`
+- Статистика администратора: команда `/admin_stats` в боте
+- Healthcheck: `GET /health` (проверяет доступность БД)

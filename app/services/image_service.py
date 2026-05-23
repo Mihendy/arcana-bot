@@ -10,7 +10,6 @@ from typing import Protocol
 from PIL import Image, ImageDraw, ImageFont
 
 from app.core.config import settings
-from app.schemas.tarot import SpreadCard
 from app.services.tarot_data import tarot_data_service
 
 CARD_SIZE = (320, 560)
@@ -38,6 +37,7 @@ class TarotCardLike(Protocol):
 
     slug: str
     is_reversed: bool
+    position: int
 
 
 class ImageService:
@@ -69,7 +69,7 @@ class ImageService:
         output.seek(0)
         return output
 
-    def create_pentagram_image(self, cards: Sequence[SpreadCard]) -> BytesIO:
+    def create_pentagram_image(self, cards: Sequence[TarotCardLike]) -> BytesIO:
         """Create single 1600x1600 image for pentagram spread.
 
         Args:
@@ -118,7 +118,7 @@ class ImageService:
             x = start_x + idx * (CARD_SIZE[0] + CARD_GAP)
             canvas.paste(card_img, (x, start_y), card_img)
 
-    def _paste_pentagram_cards(self, canvas: Image.Image, cards_by_position: dict[int, SpreadCard]) -> None:
+    def _paste_pentagram_cards(self, canvas: Image.Image, cards_by_position: dict[int, TarotCardLike]) -> None:
         """Paste pentagram cards at fixed position centers."""
         for position, (center_x, center_y) in PENTAGRAM_POSITION_CENTERS.items():
             card = cards_by_position.get(position)
