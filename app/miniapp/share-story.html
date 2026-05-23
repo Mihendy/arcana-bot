@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Поделиться в сторис</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background: #10101a;
+      color: #f5f5f5;
+      display: flex;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+    }
+    .card { max-width: 420px; }
+    button {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 0;
+      background: #6f60ff;
+      color: #fff;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h3>Поделиться в сторис</h3>
+    <p id="status">Открываем окно публикации...</p>
+    <button id="retry" style="display:none;">Открыть снова</button>
+  </div>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="/miniapp/share-story.js"></script>
+</body>
+</html>
