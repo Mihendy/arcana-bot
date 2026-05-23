@@ -19,5 +19,10 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
+            if [ ! -f .env ]; then
+              echo "Error: .env file is missing on VPS!"
+              exit 1
+            fi
             git pull origin main
-            make rebuild
+            make deploy
+            docker image prune -f --filter "label=com.docker.compose.project=arcana-bot"
