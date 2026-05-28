@@ -4,7 +4,8 @@ import asyncio
 import logging
 import sys
 from contextlib import suppress
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,7 @@ from telegram.ext import Application
 from telegram.request import HTTPXRequest
 
 from app.core.config import settings
+from app.domain.ports.user_repo import IUserRepository
 from app.infrastructure.di.providers import InfraProvider, SessionProvider
 from app.presentation.telegram.di import store_container
 from app.presentation.telegram.handlers.daily_card import DailyCardBroadcaster
@@ -26,6 +28,10 @@ DEFAULT_BOT_COMMANDS = [
     BotCommand(command="start", description="Начать работу с ботом"),
     BotCommand(command="admin_stats", description="Админ-метрики"),
 ]
+
+# File that persists the MSK date of the last successful limits reset.
+# Survives bot restarts so we never double-reset within the same calendar day.
+_LAST_RESET_FILE: Path = settings.output_dir_path.parent / "last_daily_reset.txt"
 
 
 class InterceptHandler(logging.Handler):
@@ -41,19 +47,10 @@ class InterceptHandler(logging.Handler):
 
 def configure_logging() -> None:
     """Configure application logging sinks and interception."""
-    settings.logs_dir_path.mkdir(parents=True, exist_ok=True)
     loguru_logger.remove()
     loguru_logger.add(
         sys.stderr,
         level=settings.log_level.upper(),
-        format="{time:YYYY-MM-DD HH:mm:ss,SSS} | {level} | {name} | {message}",
-    )
-    loguru_logger.add(
-        settings.logs_dir_path / "bot.log",
-        level=settings.log_level.upper(),
-        rotation="10 MB",
-        retention="30 days",
-        compression="zip",
         format="{time:YYYY-MM-DD HH:mm:ss,SSS} | {level} | {name} | {message}",
     )
 
@@ -61,9 +58,15 @@ def configure_logging() -> None:
     logging.root.handlers = [intercept_handler]
     logging.root.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
 
-    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "telegram", "httpx"):
+    for logger_name in ("uvicorn", "uvicorn.error", "telegram"):
         logging.getLogger(logger_name).handlers = [intercept_handler]
         logging.getLogger(logger_name).propagate = False
+
+    # Suppress per-request noise: long-polling getUpdates and HTTP access logs.
+    for noisy in ("httpx", "uvicorn.access"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+        logging.getLogger(noisy).handlers = [intercept_handler]
+        logging.getLogger(noisy).propagate = False
 
 
 def build_container() -> AsyncContainer:
@@ -103,6 +106,20 @@ async def set_bot_commands(application: Application) -> None:
     await application.bot.set_my_commands(DEFAULT_BOT_COMMANDS)
 
 
+def _read_last_reset_date() -> date | None:
+    """Return the date written by the last successful reset, or None."""
+    try:
+        return date.fromisoformat(_LAST_RESET_FILE.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def _write_last_reset_date(d: date) -> None:
+    """Persist today's reset date so restarts don't double-reset."""
+    _LAST_RESET_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _LAST_RESET_FILE.write_text(d.isoformat())
+
+
 class TelegramPollingService:
     """Encapsulates telegram polling startup/shutdown lifecycle."""
 
@@ -112,6 +129,7 @@ class TelegramPollingService:
         self.app = _create_telegram_app(container)
         self.app.add_error_handler(self._on_handler_error)
         self._daily_card_task: asyncio.Task[None] | None = None
+        self._reset_limits_task: asyncio.Task[None] | None = None
 
     async def _on_handler_error(self, update: object | None, context: Any) -> None:
         logger.exception("Telegram handler error. update=%s", update, exc_info=context.error)
@@ -131,17 +149,21 @@ class TelegramPollingService:
         )
         await self.app.start()
         self._start_daily_card_schedule()
+        self._start_reset_limits_schedule()
         logger.info("Bot started in polling mode")
 
     async def stop_polling(self) -> None:
         """Stop polling loop, shutdown the PTB app, and close the DI container."""
         await self._stop_daily_card_schedule()
+        await self._stop_reset_limits_schedule()
         if self.app.updater is not None:
             await self.app.updater.stop()
         await self.app.stop()
         await self.app.shutdown()
         await self._container.close()  # disposes AsyncEngine + all APP-scoped resources
         logger.info("Bot stopped")
+
+    # ── Daily card ────────────────────────────────────────────────────────────
 
     def _start_daily_card_schedule(self) -> None:
         if self._daily_card_task is not None and not self._daily_card_task.done():
@@ -167,6 +189,54 @@ class TelegramPollingService:
                 await self._broadcaster.broadcast(self.app)
             except Exception:
                 logger.exception("Failed to send daily card broadcast.")
+
+    # ── Daily limits reset ────────────────────────────────────────────────────
+
+    def _start_reset_limits_schedule(self) -> None:
+        if self._reset_limits_task is not None and not self._reset_limits_task.done():
+            return
+        self._reset_limits_task = asyncio.create_task(self._reset_limits_loop())
+
+    async def _stop_reset_limits_schedule(self) -> None:
+        if self._reset_limits_task is None:
+            return
+        self._reset_limits_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await self._reset_limits_task
+        self._reset_limits_task = None
+
+    async def _reset_limits_loop(self) -> None:
+        """Reset daily_limit = 3 for all users at midnight MSK.
+
+        Startup protection: on first run, checks whether today's reset was
+        already persisted to disk. If not — runs immediately so a bot restart
+        around midnight never leaves users with 0 slots.
+        """
+        tz = ZoneInfo(settings.daily_card_timezone)
+
+        # Startup check: run immediately if today's reset hasn't happened yet.
+        today = datetime.now(tz).date()
+        if _read_last_reset_date() != today:
+            await self._run_limits_reset(tz)
+
+        while True:
+            # Sleep until the next midnight MSK (hour=0).
+            delay = self._seconds_until_next_run(tz=tz, target_hour=0)
+            await asyncio.sleep(delay)
+            await self._run_limits_reset(tz)
+
+    async def _run_limits_reset(self, tz: ZoneInfo) -> None:
+        try:
+            async with self._container() as di:
+                user_repo: IUserRepository = await di.get(IUserRepository)
+                count = await user_repo.reset_daily_limits()
+            today = datetime.now(tz).date()
+            _write_last_reset_date(today)
+            logger.info("daily_limits reset: %d rows updated", count)
+        except Exception:
+            logger.exception("Failed to reset daily limits")
+
+    # ── Shared helpers ────────────────────────────────────────────────────────
 
     def _seconds_until_next_run(self, tz: ZoneInfo, target_hour: int) -> float:
         now = datetime.now(tz)

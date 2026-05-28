@@ -108,26 +108,26 @@ tarot_service = TarotService()
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  PRESENTATION (Entrypoints)                                  │
+│  PRESENTATION (Entrypoints)                                 │
 │  Telegram Bot  │  FastAPI REST  │  (WhatsApp/VK - future)   │
 │  Тонкие хэндлеры, только вызов use case + форматирование    │
 ├─────────────────────────────────────────────────────────────┤
-│  APPLICATION (Use Cases)                                     │
+│  APPLICATION (Use Cases)                                    │
 │  PerformReadingUseCase  │  GetDailyCardUseCase              │
-│  GetAdminStatsUseCase   │  RegisterUserUseCase               │
-│  Оркестрируют domain + порты. Без импортов telegram/fastapi  │
+│  GetAdminStatsUseCase   │  RegisterUserUseCase              │
+│  Оркестрируют domain + порты. Без импортов telegram/fastapi │
 ├──────────────────────────────┬──────────────────────────────┤
-│  DOMAIN (Core)               │  PORTS (Interfaces)           │
-│  TarotCard, SpreadResult     │  IUserRepository              │
-│  SpreadType (Enum)           │  IReadingRepository           │
-│  TarotDeck.draw()            │  ILLMProvider                 │
-│  SpreadFactory               │  IStoragePort                 │
-│  Чистая логика, нет import   │  IPaymentGateway              │
-│  SQLAlchemy/telegram/httpx   │  (Protocol классы)            │
+│  DOMAIN (Core)               │  PORTS (Interfaces)          │
+│  TarotCard, SpreadResult     │  IUserRepository             │
+│  SpreadType (Enum)           │  IReadingRepository          │
+│  TarotDeck.draw()            │  ILLMProvider                │
+│  SpreadFactory               │  IStoragePort                │
+│  Чистая логика, нет import   │  IPaymentGateway             │
+│  SQLAlchemy/telegram/httpx   │  (Protocol классы)           │
 ├──────────────────────────────┴──────────────────────────────┤
 │  INFRASTRUCTURE (Adapters — реализуют порты)                │
-│  PostgresUserRepo  │  S3StorageAdapter  │  OpenRouterAdapter │
-│  PillowRenderer    │  AlembicMigrations                      │
+│  PostgresUserRepo  │  S3StorageAdapter  │  OpenRouterAdapter│
+│  PillowRenderer    │  AlembicMigrations                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 

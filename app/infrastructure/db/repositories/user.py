@@ -151,6 +151,15 @@ class PostgresUserRepository:
         row = result.scalar_one_or_none()
         return _identity_to_entity(row) if row else None
 
+    async def reset_daily_limits(self) -> int:
+        """Restore daily_limit = 3 for users who spent readings today."""
+        result = await self._session.execute(
+            update(UserORM)
+            .where(UserORM.daily_limit < 3)
+            .values(daily_limit=3)
+        )
+        return result.rowcount  # type: ignore[return-value]
+
     async def extend_or_set_premium(self, user_id: int, days: int = 30) -> None:
         """Activate or extend premium subscription in a single atomic UPDATE.
 

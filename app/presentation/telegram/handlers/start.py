@@ -200,6 +200,9 @@ async def spread_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         await query.answer("Неизвестный тип расклада.", show_alert=True)
         return
 
+    if user_data.get(_SPREAD_KEY) == spread_type.value:
+        return  # already selected — Telegram would reject the identical edit
+
     user_data[_SPREAD_KEY] = spread_type.value
     if query.message is not None:
         await query.edit_message_reply_markup(reply_markup=build_spread_keyboard(spread_type))

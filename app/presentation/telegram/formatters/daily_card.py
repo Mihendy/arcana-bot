@@ -19,23 +19,33 @@ def build_caption(result: DailyCardResult) -> str:
     return f"Карта дня: {result.card_name}\n\n{result.interpretation}"
 
 
-def build_share_story_url(result: DailyCardResult, settings: Settings) -> str:
+def build_share_story_url(
+    result: DailyCardResult,
+    settings: Settings,
+    tg_id: str | None = None,
+) -> str:
     """Build the Mini App URL that triggers ``shareToStory``.
 
     Args:
         result: Daily card data from use case.
         settings: Application settings (for base URL and bot URL).
+        tg_id: Telegram user ID; when provided the share widget link becomes
+            a personalised referral URL (``?start=ref_{tg_id}``).
 
     Returns:
         str: Fully-encoded Mini App share URL.
     """
     share_text = f"Моя карта дня: {_to_russian_card_name(result.card_name)}"
     base = f"{settings.api_public_base_url}/miniapp/share-story.html"
+    if tg_id:
+        referral_url = f"{settings.bot_public_url}?start=ref_{tg_id}"
+    else:
+        referral_url = settings.bot_public_url
     query = urlencode(
         {
             "image_url": result.image_url,
             "text": share_text[:220],
-            "widget_url": settings.bot_public_url,
+            "widget_url": referral_url,
             "widget_name": "Узнать свою карту дня",
         }
     )

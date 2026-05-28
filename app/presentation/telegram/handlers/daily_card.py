@@ -17,7 +17,10 @@ from telegram.ext import Application
 from app.application.use_cases.get_daily_card import GetDailyCardUseCase
 from app.core.config import Settings
 from app.domain.ports.user_repo import IUserRepository
-from app.presentation.telegram.formatters.daily_card import build_caption, build_share_story_url
+from app.presentation.telegram.formatters.daily_card import (
+    build_caption,
+    build_share_story_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,15 +55,26 @@ class DailyCardBroadcaster:
             return
 
         caption = build_caption(result)
-        share_url = build_share_story_url(result, self._settings)
-        keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton(text="Поделиться в сторис", web_app=WebAppInfo(url=share_url))]]
-        )
 
-        logger.info("daily_card broadcasting card=%s to %d users", result.card_name, len(identities))
+        logger.info(
+            "daily_card broadcasting card=%s to %d users",
+            result.card_name,
+            len(identities),
+        )
 
         for identity in identities:
             try:
+                share_url = build_share_story_url(
+                    result, self._settings, tg_id=identity.external_id
+                )
+                keyboard = InlineKeyboardMarkup(
+                    [[
+                        InlineKeyboardButton(
+                            text="Поделиться в сторис",
+                            web_app=WebAppInfo(url=share_url),
+                        )
+                    ]]
+                )
                 if result.image_bytes:
                     photo: BytesIO | str = BytesIO(result.image_bytes)
                     photo.name = "daily_card.png"  # type: ignore[attr-defined]
@@ -73,4 +87,6 @@ class DailyCardBroadcaster:
                     reply_markup=keyboard,
                 )
             except Exception:
-                logger.exception("daily_card send failed external_id=%s", identity.external_id)
+                logger.exception(
+                    "daily_card send failed external_id=%s", identity.external_id
+                )

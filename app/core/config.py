@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     daily_card_hour_msk: int = 6
     daily_card_timezone: str = "Europe/Moscow"
     bot_public_url: str = "https://t.me/arcana_r_bot"
-    api_public_base_url: str = "https://2e95-154-219-201-33.ngrok-free.app"
+    api_public_base_url: str
     s3_endpoint_url: str = Field(
         default="http://127.0.0.1:9000",
         validation_alias=AliasChoices("S3_ENDPOINT_URL", "MINIO_ENDPOINT"),
@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""
 
-    bot_token: str = "replace-with-real-bot-token"
+    bot_token: str
     telegram_proxy: str = ""
     openrouter_api_key: str = ""
     openrouter_model: str = "openai/gpt-4o-mini"

@@ -72,3 +72,14 @@ class IUserRepository(Protocol):
         Always sets ``subscription_tier = 'monthly'``.
         """
         ...
+
+    async def reset_daily_limits(self) -> int:
+        """Restore daily_limit = 3 for every user who has spent readings.
+
+        Only touches rows where daily_limit < 3, so users who haven't used
+        any slots today are unaffected.
+
+        Returns:
+            int: Number of rows updated.
+        """
+        ...
