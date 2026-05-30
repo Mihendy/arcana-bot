@@ -26,7 +26,6 @@ Usage::
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import cast
 
 from dishka import Provider, Scope, provide
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
@@ -46,6 +45,9 @@ from app.domain.ports.storage_port import IStoragePort
 from app.domain.ports.unit_of_work import IUnitOfWork
 from app.domain.ports.user_repo import IUserRepository
 from app.domain.services.spread_factory import SpreadFactory
+from app.infrastructure.assets.image_service import ImageService
+from app.infrastructure.assets.tarot_data import TarotDataService
+from app.infrastructure.db.uow import SqlAlchemyUoW
 from app.infrastructure.db.repositories.llm_usage import PostgresLLMUsageRepository
 from app.infrastructure.db.repositories.payment import PostgresPaymentRepository
 from app.infrastructure.db.repositories.reading import PostgresReadingRepository
@@ -53,8 +55,6 @@ from app.infrastructure.db.repositories.user import PostgresUserRepository
 from app.infrastructure.image.renderer import PillowImageRenderer
 from app.infrastructure.llm.openrouter import OpenRouterLLMAdapter
 from app.infrastructure.storage.s3 import S3StorageAdapter
-from app.services.image_service import ImageService
-from app.services.tarot_data import TarotDataService
 
 
 class InfraProvider(Provider):
@@ -122,8 +122,7 @@ class SessionProvider(Provider):
 
     @provide
     def get_uow(self, session: AsyncSession) -> IUnitOfWork:
-        # AsyncSession structurally satisfies IUnitOfWork (commit / rollback).
-        return cast(IUnitOfWork, session)
+        return SqlAlchemyUoW(session)
 
     @provide
     def get_user_repo(self, session: AsyncSession) -> IUserRepository:

@@ -12,7 +12,7 @@ from app.api.router import router as api_router
 from app.bot.main import TelegramPollingService, build_container, configure_logging
 from app.core.config import settings
 from app.domain.ports.storage_port import IStoragePort
-from app.services.tarot_data import tarot_data_service
+from app.infrastructure.assets.tarot_data import tarot_data_service
 
 
 @asynccontextmanager

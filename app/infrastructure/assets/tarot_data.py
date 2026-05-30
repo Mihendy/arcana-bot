@@ -27,7 +27,12 @@ class TarotDataService:
         Args:
             deck_path: Optional custom path to the tarot deck JSON file.
         """
-        self._deck_path = deck_path or Path(__file__).resolve().parent.parent / "assets" / "tarot_deck.json"
+        # parents[2] == app/ regardless of how deep this module lives inside
+        # app/infrastructure/assets/, so the JSON path stays stable.
+        self._deck_path = (
+            deck_path
+            or Path(__file__).resolve().parents[2] / "assets" / "tarot_deck.json"
+        )
         self._cards: list[TarotCard] = self._load_cards()
         self._cards_by_id: dict[int, TarotCard] = {card["id"]: card for card in self._cards}
 

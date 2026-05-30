@@ -5,7 +5,7 @@ from __future__ import annotations
 from io import BytesIO
 
 from app.domain.entities.tarot import SpreadResult, SpreadType
-from app.services.image_service import ImageService
+from app.infrastructure.assets.image_service import ImageService
 
 
 class PillowImageRenderer:
