@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from dishka import AsyncContainer, make_async_container
 from loguru import logger as loguru_logger
 from telegram import BotCommand, Update
-from telegram.error import TelegramError
+from telegram.error import NetworkError, TelegramError
 from telegram.ext import Application
 from telegram.request import HTTPXRequest
 
@@ -135,7 +135,10 @@ class TelegramPollingService:
         logger.exception("Telegram handler error. update=%s", update, exc_info=context.error)
 
     def _on_polling_error(self, error: TelegramError) -> None:
-        logger.exception("Telegram polling error: %s", error, exc_info=error)
+        if isinstance(error, NetworkError):
+            logger.warning("Telegram polling network error: %s", error)
+        else:
+            logger.exception("Telegram polling error: %s", error, exc_info=error)
 
     async def run_polling(self) -> None:
         """Initialize telegram app and start polling updates."""
