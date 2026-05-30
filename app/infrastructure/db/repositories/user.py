@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import case, func, select, text, update
+from datetime import date
+
+from sqlalchemy import Date, case, cast, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -151,14 +153,24 @@ class PostgresUserRepository:
         row = result.scalar_one_or_none()
         return _identity_to_entity(row) if row else None
 
-    async def reset_daily_limits(self) -> int:
-        """Restore daily_limit = 3 for users who spent readings today."""
+    async def maybe_reset_daily_limit(self, user_id: int, msk_today: date) -> bool:
+        """Reset daily_limit = 3 if last_reset_at is before today (MSK).
+
+        Single atomic UPDATE — safe under concurrent requests.
+        Returns True when the reset was applied.
+        """
         result = await self._session.execute(
             update(UserORM)
-            .where(UserORM.daily_limit < 3)
-            .values(daily_limit=3)
+            .where(UserORM.id == user_id)
+            .where(
+                cast(
+                    func.timezone("Europe/Moscow", UserORM.last_reset_at),
+                    Date,
+                ) < msk_today
+            )
+            .values(daily_limit=3, last_reset_at=func.now())
         )
-        return result.rowcount  # type: ignore[return-value]
+        return result.rowcount > 0  # type: ignore[return-value]
 
     async def extend_or_set_premium(self, user_id: int, days: int = 30) -> None:
         """Activate or extend premium subscription in a single atomic UPDATE.
@@ -190,6 +202,7 @@ def _user_to_entity(row: UserORM) -> User:
         bonus_balance=row.bonus_balance,
         premium_expires_at=row.premium_expires_at,
         subscription_tier=row.subscription_tier,
+        last_reset_at=row.last_reset_at,
     )
 
 

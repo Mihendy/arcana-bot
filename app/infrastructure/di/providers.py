@@ -160,6 +160,7 @@ class SessionProvider(Provider):
         storage: IStoragePort,
         image_renderer: IImageRenderer,
         spread_factory: SpreadFactory,
+        settings: Settings,
     ) -> PerformReadingUseCase:
         return PerformReadingUseCase(
             uow=uow,
@@ -170,6 +171,7 @@ class SessionProvider(Provider):
             storage=storage,
             image_renderer=image_renderer,
             spread_factory=spread_factory,
+            settings=settings,
         )
 
     @provide

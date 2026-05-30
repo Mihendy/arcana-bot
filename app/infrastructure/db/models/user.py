@@ -38,6 +38,11 @@ class UserORM(InfraBase):
     subscription_tier: Mapped[str | None] = mapped_column(
         String(32), nullable=True
     )  # None = free, 'monthly' = active subscription
+    last_reset_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("'2000-01-01 00:00:00+00'"),
+    )
 
     # Self-referential: the user who referred this user (many-to-one)
     referrer: Mapped["UserORM | None"] = relationship(

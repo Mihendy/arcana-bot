@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.application.dto.reading import PerformReadingCommand, ReadingResult
 from app.application.exceptions import InsufficientLimitsError
 from app.application.security.prompt_guard import find_injection_phrase
+from app.core.config import Settings
 from app.domain.ports.image_renderer import IImageRenderer
 from app.domain.ports.llm_port import ILLMProvider
 from app.domain.ports.llm_usage_repo import ILLMUsageRepository
@@ -63,6 +66,7 @@ class PerformReadingUseCase:
         storage: IStoragePort,
         image_renderer: IImageRenderer,
         spread_factory: SpreadFactory,
+        settings: Settings,
     ) -> None:
         self._uow = uow
         self._user_repo = user_repo
@@ -72,6 +76,7 @@ class PerformReadingUseCase:
         self._storage = storage
         self._image_renderer = image_renderer
         self._spread_factory = spread_factory
+        self._tz = ZoneInfo(settings.daily_card_timezone)
 
     async def execute(self, cmd: PerformReadingCommand) -> ReadingResult:
         """Run the full reading scenario.
@@ -92,19 +97,22 @@ class PerformReadingUseCase:
             logger.warning("injection blocked platform=%s phrase=%r", cmd.platform, blocked)
             raise InjectionBlockedError(blocked)
 
-        # ── 1b. Limit pre-check (fast fail before expensive I/O) ──────
-        # Existing users with exhausted limits are rejected here.
-        # New users (None) are allowed through — get_or_create gives them
-        # the server-default daily_limit=3 and decrement_limits runs below.
+        # ── 1b. Lazy reset + limit pre-check (fast fail before expensive I/O) ─
+        # For existing users: reset daily_limit to 3 if it's a new MSK day,
+        # then reject if both counters are still zero.
+        # New users (None) pass through — get_or_create gives them limit=3.
         existing_user = await self._user_repo.get_by_platform_id(
             cmd.platform, cmd.external_user_id
         )
-        if (
-            existing_user is not None
-            and existing_user.daily_limit <= 0
-            and existing_user.bonus_balance <= 0
-        ):
-            raise InsufficientLimitsError()
+        if existing_user is not None:
+            msk_today = datetime.now(self._tz).date()
+            reset = await self._user_repo.maybe_reset_daily_limit(
+                existing_user.id, msk_today
+            )
+            if reset:
+                await self._uow.commit()
+            elif existing_user.daily_limit <= 0 and existing_user.bonus_balance <= 0:
+                raise InsufficientLimitsError()
 
         # ── 2. Domain: assemble spread (pure, no I/O) ─────────────────
         spread = self._spread_factory.build(cmd.spread_type)

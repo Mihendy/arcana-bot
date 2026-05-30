@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Protocol
 
 from app.domain.entities.user import PlatformIdentity, User
@@ -73,13 +74,17 @@ class IUserRepository(Protocol):
         """
         ...
 
-    async def reset_daily_limits(self) -> int:
-        """Restore daily_limit = 3 for every user who has spent readings.
+    async def maybe_reset_daily_limit(self, user_id: int, msk_today: date) -> bool:
+        """Reset daily_limit = 3 for this user if last_reset_at is from a
+        previous MSK calendar day.
 
-        Only touches rows where daily_limit < 3, so users who haven't used
-        any slots today are unaffected.
+        Uses a single atomic UPDATE so concurrent requests are safe.
+
+        Args:
+            user_id: Internal DB user ID.
+            msk_today: Today's date in the MSK timezone (caller computes this).
 
         Returns:
-            int: Number of rows updated.
+            bool: True if the reset was performed, False if already up-to-date.
         """
         ...
