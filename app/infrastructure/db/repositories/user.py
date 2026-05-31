@@ -83,14 +83,34 @@ class PostgresUserRepository:
         return int(result.scalar() or 0)
 
     async def list_platform_identities(self, platform: str) -> list[PlatformIdentity]:
-        """Return all identities for a specific platform, ordered by user creation."""
+        """Return active (non-blocked) identities for a platform."""
         result = await self._session.execute(
             select(PlatformIdentityORM)
             .join(UserORM, UserORM.id == PlatformIdentityORM.user_id)
-            .where(PlatformIdentityORM.platform == platform)
+            .where(
+                PlatformIdentityORM.platform == platform,
+                PlatformIdentityORM.blocked_at.is_(None),
+            )
             .order_by(UserORM.id.asc())
         )
         return [_identity_to_entity(row) for row in result.scalars().all()]
+
+    async def mark_blocked_many(self, external_ids: list[str]) -> None:
+        """Set blocked_at = now() for the given Telegram external IDs.
+
+        Idempotent — rows already marked are skipped by the WHERE clause.
+        """
+        if not external_ids:
+            return
+        await self._session.execute(
+            update(PlatformIdentityORM)
+            .where(
+                PlatformIdentityORM.platform == "telegram",
+                PlatformIdentityORM.external_id.in_(external_ids),
+                PlatformIdentityORM.blocked_at.is_(None),
+            )
+            .values(blocked_at=func.now())
+        )
 
 
     async def decrement_limits(self, user_id: int) -> None:

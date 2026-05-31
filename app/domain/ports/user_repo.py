@@ -74,6 +74,15 @@ class IUserRepository(Protocol):
         """
         ...
 
+    async def mark_blocked_many(self, external_ids: list[str]) -> None:
+        """Set blocked_at = now() for the given Telegram external IDs.
+
+        Idempotent — already-blocked rows are not updated again.
+        Blocked identities are excluded from future ``list_platform_identities``
+        results so the broadcaster stops sending to them automatically.
+        """
+        ...
+
     async def maybe_reset_daily_limit(self, user_id: int, msk_today: date) -> bool:
         """Reset daily_limit = 3 for this user if last_reset_at is from a
         previous MSK calendar day.

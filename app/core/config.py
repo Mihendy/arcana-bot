@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     premium_price_stars: int = 79
     premium_price_rub: int = 159
 
+    vk_group_token: str = ""
+    vk_group_id: int = 0
+    vk_api_version: str = "5.199"
+    vk_public_url: str = ""  # e.g. https://vk.com/your_group
+
     cards_assets_dir: str = "app/assets/cards"
     fonts_assets_dir: str = "app/assets/fonts"
     output_dir: str = "data/output"
