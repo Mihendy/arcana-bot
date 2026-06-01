@@ -2,18 +2,26 @@
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import Response
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.db import check_db_health
 from app.domain.ports.storage_port import IStoragePort
 
 router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
-async def healthcheck() -> dict[str, str]:
+async def healthcheck(request: Request) -> dict[str, str]:
     """Return API and database health status."""
-    is_db_healthy = await check_db_health()
+    try:
+        async with request.app.state.container() as di:
+            session: AsyncSession = await di.get(AsyncSession)
+            await session.execute(text("SELECT 1"))
+        is_db_healthy = True
+    except Exception:
+        is_db_healthy = False
+
     if not is_db_healthy:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -40,5 +48,7 @@ async def get_public_media(request: Request, object_key: str) -> Response:
     try:
         data, content_type = await storage.get_bytes(object_key)
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found.") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Media not found."
+        ) from exc
     return Response(content=data, media_type=content_type)

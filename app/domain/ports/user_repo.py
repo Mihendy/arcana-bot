@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Protocol
 
 from app.domain.entities.user import PlatformIdentity, User
@@ -73,13 +74,26 @@ class IUserRepository(Protocol):
         """
         ...
 
-    async def reset_daily_limits(self) -> int:
-        """Restore daily_limit = 3 for every user who has spent readings.
+    async def mark_blocked_many(self, external_ids: list[str]) -> None:
+        """Set blocked_at = now() for the given Telegram external IDs.
 
-        Only touches rows where daily_limit < 3, so users who haven't used
-        any slots today are unaffected.
+        Idempotent — already-blocked rows are not updated again.
+        Blocked identities are excluded from future ``list_platform_identities``
+        results so the broadcaster stops sending to them automatically.
+        """
+        ...
+
+    async def maybe_reset_daily_limit(self, user_id: int, msk_today: date) -> bool:
+        """Reset daily_limit = 3 for this user if last_reset_at is from a
+        previous MSK calendar day.
+
+        Uses a single atomic UPDATE so concurrent requests are safe.
+
+        Args:
+            user_id: Internal DB user ID.
+            msk_today: Today's date in the MSK timezone (caller computes this).
 
         Returns:
-            int: Number of rows updated.
+            bool: True if the reset was performed, False if already up-to-date.
         """
         ...

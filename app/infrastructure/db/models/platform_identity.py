@@ -34,5 +34,8 @@ class PlatformIdentityORM(InfraBase):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    blocked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     user: Mapped[UserORM] = relationship(back_populates="platform_identities")

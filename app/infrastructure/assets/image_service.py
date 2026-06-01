@@ -10,7 +10,7 @@ from typing import Protocol
 from PIL import Image, ImageDraw, ImageFont
 
 from app.core.config import settings
-from app.services.tarot_data import tarot_data_service
+from app.infrastructure.assets.tarot_data import tarot_data_service
 
 CARD_SIZE = (320, 560)
 CARD_GAP = 40
@@ -100,13 +100,7 @@ class ImageService:
         return Image.new("RGBA", (width, height), BACKGROUND_COLOR)
 
     def _paste_cards(self, canvas: Image.Image, cards: Sequence[TarotCardLike], count: int) -> None:
-        """Paste resized card images onto the canvas.
-
-        Args:
-            canvas: Target canvas image.
-            cards: Spread cards to render.
-            count: Number of cards in rendered layout.
-        """
+        """Paste resized card images onto the canvas."""
         total_width = CARD_SIZE[0] * count + CARD_GAP * (count - 1)
         start_x = (canvas.width - total_width) // 2
         start_y = (canvas.height - CARD_SIZE[1]) // 2
@@ -133,31 +127,14 @@ class ImageService:
             canvas.paste(card_img, (x, y), card_img)
 
     def _load_card_image(self, slug: str, size: tuple[int, int]) -> Image.Image:
-        """Load and resize one card image by slug.
-
-        Args:
-            slug: Card slug used in asset file names.
-            size: Target rendered image size.
-
-        Returns:
-            Image.Image: Resized RGB card image.
-
-        Raises:
-            FileNotFoundError: If image file for slug cannot be resolved.
-        """
+        """Load and resize one card image by slug."""
         path = tarot_data_service.get_card_asset_path(slug)
         with Image.open(path) as image:
             resized = image.convert("RGBA").resize(size, Image.Resampling.LANCZOS)
             return self._apply_rounded_corners(resized, CARD_CORNER_RADIUS)
 
     def _draw_watermark(self, canvas: Image.Image, count: int, centered: bool = False) -> None:
-        """Draw brand watermark on the generated canvas.
-
-        Args:
-            canvas: Canvas image to watermark.
-            count: Number of rendered cards.
-            centered: Whether to draw watermark in the canvas center.
-        """
+        """Draw brand watermark on the generated canvas."""
         draw = ImageDraw.Draw(canvas, "RGBA")
         font = self._load_font(canvas.width, count)
         text_bbox = draw.textbbox((0, 0), WATERMARK_TEXT, font=font)
@@ -167,20 +144,11 @@ class ImageService:
         x = (canvas.width - text_w) // 2
         y = (canvas.height - text_h) // 2 if centered else canvas.height - text_h - WATERMARK_MARGIN
 
-        # Small shadow for better readability on bright cards.
         draw.text((x + 2, y + 2), WATERMARK_TEXT, font=font, fill=WATERMARK_SHADOW_COLOR)
         draw.text((x, y), WATERMARK_TEXT, font=font, fill=WATERMARK_COLOR)
 
     def _load_font(self, canvas_width: int, count: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-        """Load first available custom font or fallback default font.
-
-        Args:
-            canvas_width: Width of final rendered image.
-            count: Number of cards in rendered image.
-
-        Returns:
-            ImageFont.FreeTypeFont | ImageFont.ImageFont: Loaded font object.
-        """
+        """Load first available custom font or fallback default font."""
         dynamic_size = max(24, min(64, math.floor(canvas_width / 28)))
         if count == 1:
             dynamic_size = max(24, dynamic_size - 8)
@@ -199,15 +167,7 @@ class ImageService:
         return output
 
     def _apply_rounded_corners(self, image: Image.Image, radius: int) -> Image.Image:
-        """Apply rounded corners mask to a card image.
-
-        Args:
-            image: Source image in RGBA mode.
-            radius: Corner radius in pixels.
-
-        Returns:
-            Image.Image: Image with transparent rounded corners.
-        """
+        """Apply rounded corners mask to a card image."""
         mask = Image.new("L", image.size, 0)
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.rounded_rectangle((0, 0, image.width, image.height), radius=radius, fill=255)

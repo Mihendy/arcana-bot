@@ -56,7 +56,7 @@ class SpreadFactory:
 
     Example::
 
-        from app.services.tarot_data import tarot_data_service
+        from app.infrastructure.assets.tarot_data import tarot_data_service
         factory = SpreadFactory(raw_deck=tarot_data_service.get_deck())
         result = factory.build(SpreadType.THREE_CARDS)
     """

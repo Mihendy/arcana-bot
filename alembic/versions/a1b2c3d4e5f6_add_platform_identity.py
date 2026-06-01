@@ -92,11 +92,22 @@ def upgrade() -> None:
     # 4. Clean up legacy columns on users
     #    (must happen AFTER backfill steps above)
     # ------------------------------------------------------------------
-    op.drop_index("ix_users_tg_id", table_name="users")
-    op.drop_constraint("users_tg_id_key", "users", type_="unique")
-    op.drop_column("users", "tg_id")
-    op.drop_column("users", "username")
-    op.drop_column("users", "full_name")
+    # Drop index if exists (check against information_schema)
+    op.execute(
+        """
+        DROP INDEX IF EXISTS ix_users_tg_id
+        """
+    )
+    # Drop unique constraint if exists
+    op.execute(
+        """
+        ALTER TABLE users
+        DROP CONSTRAINT IF EXISTS users_tg_id_key
+        """
+    )
+    op.drop_column("users", "tg_id", mocked_default=True)
+    op.drop_column("users", "username", mocked_default=True)
+    op.drop_column("users", "full_name", mocked_default=True)
 
     # ------------------------------------------------------------------
     # 5. readings: drop legacy scalar image_url; fix image_urls NOT NULL

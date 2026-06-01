@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from sqlalchemy import case, func, select, text, update
+import logging
+from datetime import date
+
+from sqlalchemy import Date, case, cast, delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities.user import PlatformIdentity, User
 from app.infrastructure.db.models.platform_identity import PlatformIdentityORM
 from app.infrastructure.db.models.user import UserORM
+
+logger = logging.getLogger(__name__)
 
 
 class PostgresUserRepository:
@@ -36,12 +41,31 @@ class PostgresUserRepository:
     ) -> tuple[User, bool]:
         """Return existing user or atomically create a new one.
 
-        Uses a PostgreSQL SAVEPOINT (``begin_nested``) so that a concurrent
-        INSERT from another task racing on the same (platform, external_id)
-        only rolls back the savepoint, not the outer transaction.  This
-        eliminates the race condition: the second task catches IntegrityError
-        and re-reads the row committed by the first task.
+        Strategy (two-layer):
+        1. ``pg_advisory_xact_lock`` serialises concurrent registrations for the
+           same (platform, external_id) at the DB level — the lock is released
+           automatically when the transaction ends.  A second SELECT after
+           acquiring the lock handles the case where another task committed
+           while we waited.
+        2. A SAVEPOINT (``begin_nested``) acts as a final safety net for any
+           remaining edge case (e.g. advisory-lock hash collision, orphaned
+           platform_identity without a matching users row).
         """
+        # Fast path: identity already exists
+        existing = await self.get_by_platform_id(platform, external_id)
+        if existing:
+            return existing, False
+
+        # Serialise concurrent registration of the same identity.
+        # pg_advisory_xact_lock blocks until it acquires the lock and releases
+        # it when the transaction commits or rolls back.
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"{platform}:{external_id}"},
+        )
+
+        # Re-check after acquiring the lock: another task may have committed
+        # this identity while we were waiting.
         existing = await self.get_by_platform_id(platform, external_id)
         if existing:
             return existing, False
@@ -59,18 +83,44 @@ class PostgresUserRepository:
                     display_name=display_name,
                 )
                 self._session.add(identity_orm)
-                await self._session.flush()  # may raise IntegrityError
+                await self._session.flush()
 
             return _user_to_entity(user_orm), True
 
         except IntegrityError:
-            # Another concurrent task committed the same identity first.
-            # The savepoint was rolled back automatically; the outer
-            # transaction is clean — we can SELECT immediately.
-            user = await self.get_by_platform_id(platform, external_id)
-            if user is None:
-                raise  # Unexpected: constraint fired but row not found
-            return user, False
+            # Savepoint was rolled back automatically.
+            # Normal case: concurrent task committed just before us.
+            existing = await self.get_by_platform_id(platform, external_id)
+            if existing is not None:
+                return existing, False
+
+            # Orphaned platform_identity (users row deleted but identity row
+            # remained, e.g. after manual DB surgery).  Clean it up and retry.
+            logger.warning(
+                "orphaned platform_identity detected for %s:%s — removing",
+                platform, external_id,
+            )
+            async with self._session.begin_nested():
+                await self._session.execute(
+                    delete(PlatformIdentityORM).where(
+                        PlatformIdentityORM.platform == platform,
+                        PlatformIdentityORM.external_id == external_id,
+                    )
+                )
+                user_orm = UserORM()
+                self._session.add(user_orm)
+                await self._session.flush()
+
+                identity_orm = PlatformIdentityORM(
+                    user_id=user_orm.id,
+                    platform=platform,
+                    external_id=external_id,
+                    display_name=display_name,
+                )
+                self._session.add(identity_orm)
+                await self._session.flush()
+
+            return _user_to_entity(user_orm), True
 
     async def count_all(self) -> int:
         """Return total number of registered users."""
@@ -81,14 +131,34 @@ class PostgresUserRepository:
         return int(result.scalar() or 0)
 
     async def list_platform_identities(self, platform: str) -> list[PlatformIdentity]:
-        """Return all identities for a specific platform, ordered by user creation."""
+        """Return active (non-blocked) identities for a platform."""
         result = await self._session.execute(
             select(PlatformIdentityORM)
             .join(UserORM, UserORM.id == PlatformIdentityORM.user_id)
-            .where(PlatformIdentityORM.platform == platform)
+            .where(
+                PlatformIdentityORM.platform == platform,
+                PlatformIdentityORM.blocked_at.is_(None),
+            )
             .order_by(UserORM.id.asc())
         )
         return [_identity_to_entity(row) for row in result.scalars().all()]
+
+    async def mark_blocked_many(self, external_ids: list[str]) -> None:
+        """Set blocked_at = now() for the given Telegram external IDs.
+
+        Idempotent — rows already marked are skipped by the WHERE clause.
+        """
+        if not external_ids:
+            return
+        await self._session.execute(
+            update(PlatformIdentityORM)
+            .where(
+                PlatformIdentityORM.platform == "telegram",
+                PlatformIdentityORM.external_id.in_(external_ids),
+                PlatformIdentityORM.blocked_at.is_(None),
+            )
+            .values(blocked_at=func.now())
+        )
 
 
     async def decrement_limits(self, user_id: int) -> None:
@@ -151,14 +221,24 @@ class PostgresUserRepository:
         row = result.scalar_one_or_none()
         return _identity_to_entity(row) if row else None
 
-    async def reset_daily_limits(self) -> int:
-        """Restore daily_limit = 3 for users who spent readings today."""
+    async def maybe_reset_daily_limit(self, user_id: int, msk_today: date) -> bool:
+        """Reset daily_limit = 3 if last_reset_at is before today (MSK).
+
+        Single atomic UPDATE — safe under concurrent requests.
+        Returns True when the reset was applied.
+        """
         result = await self._session.execute(
             update(UserORM)
-            .where(UserORM.daily_limit < 3)
-            .values(daily_limit=3)
+            .where(UserORM.id == user_id)
+            .where(
+                cast(
+                    func.timezone("Europe/Moscow", UserORM.last_reset_at),
+                    Date,
+                ) < msk_today
+            )
+            .values(daily_limit=3, last_reset_at=func.now())
         )
-        return result.rowcount  # type: ignore[return-value]
+        return result.rowcount > 0  # type: ignore[return-value]
 
     async def extend_or_set_premium(self, user_id: int, days: int = 30) -> None:
         """Activate or extend premium subscription in a single atomic UPDATE.
@@ -190,6 +270,7 @@ def _user_to_entity(row: UserORM) -> User:
         bonus_balance=row.bonus_balance,
         premium_expires_at=row.premium_expires_at,
         subscription_tier=row.subscription_tier,
+        last_reset_at=row.last_reset_at,
     )
 
 

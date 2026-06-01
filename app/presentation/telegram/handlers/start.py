@@ -8,9 +8,7 @@ service imports live here.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -24,13 +22,14 @@ from telegram.ext import (
 )
 
 from app.application.dto.reading import PerformReadingCommand
-from app.application.exceptions import InsufficientLimitsError
-from app.application.use_cases.perform_reading import InjectionBlockedError, PerformReadingUseCase
+from app.application.exceptions import InjectionBlockedError, InsufficientLimitsError
+from app.bot.utils import time_until_midnight_msk
+from app.application.use_cases.perform_reading import PerformReadingUseCase
 from app.application.use_cases.register_user import RegisterUserUseCase
-from app.bot.states import TarotState
+from app.presentation.telegram.states import TarotState
 from app.domain.entities.tarot import SpreadType
 from app.presentation.telegram.di import get_container
-from app.presentation.telegram.formatters.keyboards import build_main_reply_keyboard, build_spread_keyboard
+from app.presentation.telegram.formatters.keyboards import START_BUTTON_TEXT, build_main_reply_keyboard, build_spread_keyboard
 from app.presentation.telegram.formatters.reading import send_reading_result
 
 logger = logging.getLogger(__name__)
@@ -113,10 +112,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user_data[_SPREAD_KEY] = current_spread.value
 
     greeting = _GREETING_NEW if reg.is_new_user else _GREETING_RETURNING
-    await message.reply_text(
-        _START_TEMPLATE.format(greeting=greeting),
-        reply_markup=build_main_reply_keyboard(),
-    )
+    await message.reply_text(_START_TEMPLATE.format(greeting=greeting), reply_markup=build_main_reply_keyboard())
     await message.reply_text(_PROMPT_SPREAD, reply_markup=build_spread_keyboard(current_spread))
     logger.info("start tg_id=%s is_new=%s has_referrer=%s", tg_user.id, reg.is_new_user, reg.has_referrer)
 
@@ -158,7 +154,7 @@ async def question_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         bot_username = context.bot.username or "arcana_r_bot"
         await message.reply_text(
             _LIMITS_EXHAUSTED_TEMPLATE.format(
-                time_until=_time_until_midnight_msk(),
+                time_until=time_until_midnight_msk(),
                 bot_username=bot_username,
                 tg_id=tg_user.id,
             )
@@ -220,23 +216,6 @@ async def unknown_command_handler(update: Update, context: ContextTypes.DEFAULT_
 # Helpers
 # ---------------------------------------------------------------------------
 
-_MSK = ZoneInfo("Europe/Moscow")
-
-
-def _time_until_midnight_msk() -> str:
-    """Return human-readable time remaining until midnight Moscow time.
-
-    Always returns at least "1 мин." so the message never says "0 мин."
-    """
-    now = datetime.now(_MSK)
-    midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    total_minutes = max(1, int((midnight - now).total_seconds() // 60))
-    hours, minutes = divmod(total_minutes, 60)
-    if hours == 0:
-        return f"{minutes} мин."
-    return f"{hours} ч. {minutes} мин."
-
-
 def _parse_referrer_id(text: str | None) -> str | None:
     """Extract referrer external_id from a /start deep-link payload.
 
@@ -268,6 +247,7 @@ def get_start_handlers() -> list[BaseHandler]:
     """Return the ordered handler list for the question flow."""
     return [
         CommandHandler("start", start_handler),
+        MessageHandler(filters.Text([START_BUTTON_TEXT]), start_handler),
         CallbackQueryHandler(spread_callback_handler, pattern=r"^spread:"),
         MessageHandler(filters.TEXT & ~filters.COMMAND, question_handler),
         MessageHandler(filters.COMMAND, unknown_command_handler),

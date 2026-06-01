@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+
+# Sentinel: older than any real date, guarantees lazy reset fires on first access.
+_EPOCH = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -14,6 +17,7 @@ class User:
     bonus_balance: int = 0
     premium_expires_at: datetime | None = None
     subscription_tier: str | None = None
+    last_reset_at: datetime = _EPOCH
 
 
 @dataclass(frozen=True)
