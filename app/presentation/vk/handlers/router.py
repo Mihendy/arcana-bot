@@ -6,6 +6,7 @@ from dishka import AsyncContainer
 from vkbottle import API
 from vkbottle.bot import BotLabeler
 
+from app.bot.spread_store import VKSessionStore
 from app.core.config import Settings
 from app.infrastructure.vk.photo_uploader import VKPhotoUploader
 from app.presentation.vk.handlers import profile, reading, start
@@ -17,17 +18,12 @@ def setup_handlers(
     api: API,
     settings: Settings,
 ) -> None:
-    """Register all VK handlers.
-
-    ``spread_store`` is a shared in-memory dict that persists the selected
-    spread type per user between the spread-selection callback and the
-    subsequent question message.  It lives for the duration of the process.
-    """
-    spread_store: dict[int, str] = {}
+    """Register all VK handlers."""
+    store = VKSessionStore()
     uploader = VKPhotoUploader(api, settings.vk_group_id)
 
     # Registration must happen BEFORE the catch-all question handler so
     # "start" text is matched first.
-    start.register(labeler, container, settings, spread_store)
+    start.register(labeler, container, settings, store)
     profile.register(labeler, container, settings)
-    reading.register(labeler, container, settings, spread_store, uploader)
+    reading.register(labeler, container, settings, store, uploader)

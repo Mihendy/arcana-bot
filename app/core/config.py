@@ -70,6 +70,7 @@ class Settings(BaseSettings):
 
     vk_group_token: str = ""
     vk_group_id: int = 0
+    vk_app_id: int = 0  # VK Mini App ID for story sharing
     vk_api_version: str = "5.199"
     vk_public_url: str = ""  # e.g. https://vk.com/your_group
 

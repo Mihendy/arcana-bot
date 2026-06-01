@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.application.dto.reading import PerformReadingCommand, ReadingResult
-from app.application.exceptions import InsufficientLimitsError
+from app.application.exceptions import InjectionBlockedError, InsufficientLimitsError
 from app.application.security.prompt_guard import find_injection_phrase
 from app.core.config import Settings
 from app.domain.ports.image_renderer import IImageRenderer
@@ -20,10 +21,6 @@ from app.domain.ports.user_repo import IUserRepository
 from app.domain.services.spread_factory import SpreadFactory
 
 logger = logging.getLogger(__name__)
-
-
-class InjectionBlockedError(Exception):
-    """Raised when the user's question contains a prompt-injection attempt."""
 
 
 class PerformReadingUseCase:
@@ -77,6 +74,7 @@ class PerformReadingUseCase:
         self._image_renderer = image_renderer
         self._spread_factory = spread_factory
         self._tz = ZoneInfo(settings.daily_card_timezone)
+        self._llm_timeout = settings.openrouter_timeout_seconds
 
     async def execute(self, cmd: PerformReadingCommand) -> ReadingResult:
         """Run the full reading scenario.
@@ -118,11 +116,16 @@ class PerformReadingUseCase:
         spread = self._spread_factory.build(cmd.spread_type)
 
         # ── 3. External I/O: LLM ──────────────────────────────────────
-        # Failures propagate as RuntimeError — the caller decides the UX.
-        llm_result = await self._llm.get_interpretation(
-            question=cmd.question,
-            cards=spread.cards,
-            spread_type=spread.spread_type,
+        # asyncio.wait_for is a safety net on top of the HTTP-client timeout:
+        # if the TCP connection is accepted but the response never arrives,
+        # this cancels the coroutine instead of hanging forever.
+        llm_result = await asyncio.wait_for(
+            self._llm.get_interpretation(
+                question=cmd.question,
+                cards=spread.cards,
+                spread_type=spread.spread_type,
+            ),
+            timeout=self._llm_timeout,
         )
 
         # ── 4. CPU-bound: render image ────────────────────────────────

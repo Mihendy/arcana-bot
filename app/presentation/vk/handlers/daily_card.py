@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from io import BytesIO
+from urllib.parse import urlencode
 
 from dishka import AsyncContainer
 from vkbottle import API, VKAPIError
@@ -15,6 +16,7 @@ from app.domain.ports.unit_of_work import IUnitOfWork
 from app.domain.ports.user_repo import IUserRepository
 from app.infrastructure.vk.photo_uploader import VKPhotoUploader
 from app.presentation.telegram.formatters.daily_card import build_caption
+from app.presentation.vk.formatters.keyboards import build_story_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,20 @@ class VKDailyCardBroadcaster:
                 logger.exception("vk daily_card photo upload failed")
 
         caption = build_caption(result)
+
+        # Build story keyboard if Mini App is configured
+        story_keyboard: str | None = None
+        if self._settings.vk_app_id:
+            hash_params = urlencode({
+                "image_url": result.image_url,
+                "group_url": self._settings.vk_public_url,
+            })
+            story_keyboard = build_story_keyboard(
+                app_id=self._settings.vk_app_id,
+                group_id=self._settings.vk_group_id,
+                hash_params=hash_params,
+            )
+
         logger.info(
             "vk daily_card broadcasting card=%s to %d users",
             result.card_name, len(identities),
@@ -66,12 +82,15 @@ class VKDailyCardBroadcaster:
         async def _send_one(external_id: str) -> None:
             async with semaphore:
                 try:
-                    await self._api.messages.send(
-                        user_id=int(external_id),
-                        message=caption,
-                        attachment=attachment or "",
-                        random_id=0,
-                    )
+                    kwargs: dict = {
+                        "user_id": int(external_id),
+                        "message": caption,
+                        "attachment": attachment or "",
+                        "random_id": 0,
+                    }
+                    if story_keyboard:
+                        kwargs["keyboard"] = story_keyboard
+                    await self._api.messages.send(**kwargs)
                 except VKAPIError as exc:
                     if exc.code == _VK_CANT_SEND_TO_USER:
                         logger.warning(

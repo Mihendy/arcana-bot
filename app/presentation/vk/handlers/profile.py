@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 from dishka import AsyncContainer
 from vkbottle.bot import BotLabeler, Message
 
 from app.application.dto.profile import UserProfileDTO
 from app.application.use_cases.get_user_profile import GetUserProfileUseCase
+from app.bot.utils import subscription_line
 from app.core.config import Settings
-from app.presentation.vk.formatters.keyboards import PROFILE_BUTTON_TEXT
+from app.presentation.vk.formatters.keyboards import PROFILE_BUTTON_TEXT, build_main_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -19,20 +19,12 @@ _PLATFORM = "vk"
 _PROFILE_ERROR = "Не удалось загрузить профиль. Попробуй позже."
 
 
-def _subscription_line(profile: UserProfileDTO) -> str:
-    now = datetime.now(tz=timezone.utc)
-    if profile.premium_expires_at and profile.premium_expires_at > now:
-        until = profile.premium_expires_at.strftime("%d.%m.%Y")
-        return f"💎 Подписка: Премиум (до {until})"
-    return "📦 Подписка: Базовый"
-
-
 def _build_profile_text(user_id: int, settings: Settings, profile: UserProfileDTO) -> str:
     ref_url = f"{settings.vk_public_url}?ref=ref_{user_id}"
     return (
         "👤 Ваш профиль\n\n"
         f"🆔 Ваш VK ID: {user_id}\n"
-        f"{_subscription_line(profile)}\n"
+        f"{subscription_line(profile)}\n"
         f"🌙 Ежедневные расклады: {profile.daily_limit} из 3 осталось\n"
         f"🎁 Бонусные расклады: {profile.bonus_balance}\n\n"
         f"👥 Приглашено друзей: {profile.referrals_count} чел.\n\n"
@@ -60,10 +52,11 @@ def register(
                 )
         except Exception:
             logger.exception("vk profile failed user_id=%s", user_id)
-            await message.answer(_PROFILE_ERROR)
+            await message.answer(_PROFILE_ERROR, keyboard=build_main_keyboard())
             return
 
         await message.answer(
             _build_profile_text(user_id, settings, profile),
             dont_parse_links=True,
+            keyboard=build_main_keyboard(),
         )

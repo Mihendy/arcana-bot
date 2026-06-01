@@ -7,16 +7,13 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
 from app.domain.entities.tarot import SpreadType
 
 PROFILE_BUTTON_TEXT = "👤 Профиль"
+START_BUTTON_TEXT = "Старт"
 
 
 def build_main_reply_keyboard() -> ReplyKeyboardMarkup:
-    """Persistent bottom keyboard shown after /start.
-
-    Returns:
-        ReplyKeyboardMarkup: one-button keyboard with the profile shortcut.
-    """
+    """Persistent bottom keyboard shown after /start."""
     return ReplyKeyboardMarkup(
-        [[KeyboardButton(PROFILE_BUTTON_TEXT)]],
+        [[KeyboardButton(START_BUTTON_TEXT), KeyboardButton(PROFILE_BUTTON_TEXT)]],
         resize_keyboard=True,
         is_persistent=True,
     )

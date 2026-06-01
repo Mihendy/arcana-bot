@@ -53,15 +53,33 @@ class VKPollingService:
         logger.info("VK bot stopped")
 
     async def _polling_loop(self) -> None:
-        """Run vkbottle Long Poll indefinitely; restart on unexpected errors."""
+        """Run vkbottle Long Poll indefinitely inside the existing event loop.
+
+        Uses exponential backoff on consecutive failures (5s → 10s → … → 5m).
+        pending is kept outside the retry loop so in-flight tasks survive a
+        transient polling crash and can still be cancelled on shutdown.
+        """
+        retry_delay = 5
+        max_retry_delay = 300
+        pending: set[asyncio.Task] = set()
         while True:
             try:
-                await self._bot.run_polling()
+                async for event in self._bot.polling.listen():
+                    for update in event.get("updates", []):
+                        task = asyncio.create_task(
+                            self._bot.router.route(update, self._bot.polling.api)
+                        )
+                        pending.add(task)
+                        task.add_done_callback(pending.discard)
+                retry_delay = 5
             except asyncio.CancelledError:
+                for t in pending:
+                    t.cancel()
                 raise
             except Exception:
-                logger.exception("VK polling crashed, restarting in 5s")
-                await asyncio.sleep(5)
+                logger.exception("VK polling crashed, restarting in %ds", retry_delay)
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_retry_delay)
 
     # ── Daily card ────────────────────────────────────────────────────────────
 

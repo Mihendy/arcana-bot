@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import logging
 from datetime import date
 
-from sqlalchemy import Date, case, cast, func, select, text, update
+from sqlalchemy import Date, case, cast, delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities.user import PlatformIdentity, User
 from app.infrastructure.db.models.platform_identity import PlatformIdentityORM
 from app.infrastructure.db.models.user import UserORM
+
+logger = logging.getLogger(__name__)
 
 
 class PostgresUserRepository:
@@ -38,12 +41,31 @@ class PostgresUserRepository:
     ) -> tuple[User, bool]:
         """Return existing user or atomically create a new one.
 
-        Uses a PostgreSQL SAVEPOINT (``begin_nested``) so that a concurrent
-        INSERT from another task racing on the same (platform, external_id)
-        only rolls back the savepoint, not the outer transaction.  This
-        eliminates the race condition: the second task catches IntegrityError
-        and re-reads the row committed by the first task.
+        Strategy (two-layer):
+        1. ``pg_advisory_xact_lock`` serialises concurrent registrations for the
+           same (platform, external_id) at the DB level — the lock is released
+           automatically when the transaction ends.  A second SELECT after
+           acquiring the lock handles the case where another task committed
+           while we waited.
+        2. A SAVEPOINT (``begin_nested``) acts as a final safety net for any
+           remaining edge case (e.g. advisory-lock hash collision, orphaned
+           platform_identity without a matching users row).
         """
+        # Fast path: identity already exists
+        existing = await self.get_by_platform_id(platform, external_id)
+        if existing:
+            return existing, False
+
+        # Serialise concurrent registration of the same identity.
+        # pg_advisory_xact_lock blocks until it acquires the lock and releases
+        # it when the transaction commits or rolls back.
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"{platform}:{external_id}"},
+        )
+
+        # Re-check after acquiring the lock: another task may have committed
+        # this identity while we were waiting.
         existing = await self.get_by_platform_id(platform, external_id)
         if existing:
             return existing, False
@@ -61,18 +83,44 @@ class PostgresUserRepository:
                     display_name=display_name,
                 )
                 self._session.add(identity_orm)
-                await self._session.flush()  # may raise IntegrityError
+                await self._session.flush()
 
             return _user_to_entity(user_orm), True
 
         except IntegrityError:
-            # Another concurrent task committed the same identity first.
-            # The savepoint was rolled back automatically; the outer
-            # transaction is clean — we can SELECT immediately.
-            user = await self.get_by_platform_id(platform, external_id)
-            if user is None:
-                raise  # Unexpected: constraint fired but row not found
-            return user, False
+            # Savepoint was rolled back automatically.
+            # Normal case: concurrent task committed just before us.
+            existing = await self.get_by_platform_id(platform, external_id)
+            if existing is not None:
+                return existing, False
+
+            # Orphaned platform_identity (users row deleted but identity row
+            # remained, e.g. after manual DB surgery).  Clean it up and retry.
+            logger.warning(
+                "orphaned platform_identity detected for %s:%s — removing",
+                platform, external_id,
+            )
+            async with self._session.begin_nested():
+                await self._session.execute(
+                    delete(PlatformIdentityORM).where(
+                        PlatformIdentityORM.platform == platform,
+                        PlatformIdentityORM.external_id == external_id,
+                    )
+                )
+                user_orm = UserORM()
+                self._session.add(user_orm)
+                await self._session.flush()
+
+                identity_orm = PlatformIdentityORM(
+                    user_id=user_orm.id,
+                    platform=platform,
+                    external_id=external_id,
+                    display_name=display_name,
+                )
+                self._session.add(identity_orm)
+                await self._session.flush()
+
+            return _user_to_entity(user_orm), True
 
     async def count_all(self) -> int:
         """Return total number of registered users."""
