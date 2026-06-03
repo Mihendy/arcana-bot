@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from io import BytesIO
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 from uuid import uuid4
 
 import boto3  # type: ignore[import-untyped]
@@ -142,26 +142,15 @@ class S3StorageAdapter:
     # ------------------------------------------------------------------
 
     def _build_public_url(self, object_key: str) -> str:
-        """Resolve public URL for an object key."""
-        if self._is_non_local_endpoint():
-            return self._build_s3_url(object_key)
-        return f"{self._api_proxy_base_url}/public/media/{quote(object_key, safe='/')}"
+        """Resolve public URL for an object key.
 
-    def _is_non_local_endpoint(self) -> bool:
-        if not self._endpoint_url:
-            return False
-        host = (urlparse(self._endpoint_url).hostname or "").lower()
-        return host not in {"localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal"}
-
-    def _build_s3_url(self, object_key: str) -> str:
+        Prefers ``s3_public_base_url`` (CDN / public bucket) when configured.
+        Falls back to the API proxy endpoint which is always publicly reachable
+        over HTTPS and avoids exposing internal Docker hostnames to third parties.
+        """
         if self._public_base_url:
             return f"{self._public_base_url}/{quote(object_key, safe='/')}"
-        parsed = urlparse(self._endpoint_url)
-        scheme = parsed.scheme or ("https" if self._use_ssl else "http")
-        host = parsed.hostname or ""
-        bucket_host = host if host.startswith(f"{self._bucket}.") else f"{self._bucket}.{host}"
-        port = f":{parsed.port}" if parsed.port else ""
-        return f"{scheme}://{bucket_host}{port}/{quote(object_key, safe='/')}"
+        return f"{self._api_proxy_base_url}/public/media/{quote(object_key, safe='/')}"
 
 
 def _guess_content_type(suffix: str) -> str:
