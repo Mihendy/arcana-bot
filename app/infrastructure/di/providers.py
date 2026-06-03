@@ -190,9 +190,9 @@ class SessionProvider(Provider):
 
     @provide
     def get_user_profile_use_case(
-        self, user_repo: IUserRepository, s: Settings
+        self, user_repo: IUserRepository, uow: IUnitOfWork, s: Settings
     ) -> GetUserProfileUseCase:
-        return GetUserProfileUseCase(user_repo=user_repo, settings=s)
+        return GetUserProfileUseCase(user_repo=user_repo, uow=uow, settings=s)
 
     @provide
     def get_admin_stats_use_case(
