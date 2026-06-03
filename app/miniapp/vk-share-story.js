@@ -40,6 +40,8 @@
           };
         }
 
+        statusEl.textContent = "URL: " + imageUrl.substring(0, 80);
+
         vkBridge
           .send("VKWebAppShowStoryBox", params)
           .then(function (data) {
