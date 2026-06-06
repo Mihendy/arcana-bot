@@ -63,7 +63,8 @@ class VKDailyCardBroadcaster:
         if self._settings.vk_app_id:
             hash_params = urlencode({
                 "image_url": result.image_url,
-                "group_url": self._settings.vk_public_url,
+                # attachment.url must be vk.ru domain per VK Bridge docs
+                "app_url": f"https://vk.ru/app{self._settings.vk_app_id}",
             })
             story_keyboard = build_story_keyboard(
                 app_id=self._settings.vk_app_id,
