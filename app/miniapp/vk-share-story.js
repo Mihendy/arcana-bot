@@ -10,6 +10,9 @@
 
   var imageUrl = hashParams.get("image_url") || "";
   var appUrl = hashParams.get("app_url") || "";
+  // VK may double-encode the hash; decode any residual percent-encoding.
+  try { imageUrl = decodeURIComponent(imageUrl); } catch (e) {}
+  try { appUrl = decodeURIComponent(appUrl); } catch (e) {}
 
   function share() {
     if (!imageUrl) {

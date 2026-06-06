@@ -14,7 +14,11 @@ _CAPTION_LIMIT = 1024
 
 
 async def send_reading_result(message: Message, result: ReadingResult) -> None:
-    """Send a reading result to the user, with or without an image."""
+    """Send a reading result to the user, with or without an image.
+
+    Raises ``telegram.error.TimedOut`` on photo upload failure so the caller
+    can decide whether to refund the reading slot.
+    """
     text = build_reading_text(result)
 
     if result.image_bytes or result.image_url:

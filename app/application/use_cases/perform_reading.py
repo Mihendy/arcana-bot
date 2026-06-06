@@ -152,6 +152,7 @@ class PerformReadingUseCase:
                 external_id=cmd.external_user_id,
                 display_name=cmd.user_display_name,
             )
+            was_bonus_used = user.daily_limit <= 0
             await self._user_repo.decrement_limits(user.id)
             await self._reading_repo.create(
                 user_id=user.id,
@@ -180,6 +181,8 @@ class PerformReadingUseCase:
             llm_status=llm_result.status,
             llm_tokens=llm_result.total_tokens,
             image_bytes=image_buf.getvalue(),
+            user_id=user.id,
+            was_bonus_used=was_bonus_used,
         )
 
 
