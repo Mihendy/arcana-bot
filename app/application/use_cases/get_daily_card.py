@@ -65,6 +65,16 @@ class GetDailyCardUseCase:
         image_buf = self._image_renderer.render(spread)
         stored = await self._storage.save(image_buf, suffix=".png")
 
+        # Also generate and upload a 9:16 story image for VK story sharing.
+        # Non-fatal: if this fails, story sharing won't have a background image.
+        story_image_url: str | None = None
+        try:
+            story_buf = self._image_renderer.render_story(image_buf)
+            story_stored = await self._storage.save(story_buf, suffix=".png")
+            story_image_url = story_stored.public_url
+        except Exception:
+            logger.warning("daily_card story image generation failed card=%s", card.name)
+
         logger.info("daily_card card=%s image_url=%s", card.name, stored.public_url)
 
         return DailyCardResult(
@@ -73,4 +83,5 @@ class GetDailyCardUseCase:
             interpretation=llm_result.interpretation,
             image_url=stored.public_url,
             image_bytes=image_buf.getvalue(),
+            story_image_url=story_image_url,
         )

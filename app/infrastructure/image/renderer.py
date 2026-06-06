@@ -25,3 +25,7 @@ class PillowImageRenderer:
         if spread.spread_type == SpreadType.PENTAGRAM:
             return self._svc.create_pentagram_image(spread.cards)
         return self._svc.create_spread_image(spread.cards)
+
+    def render_story(self, card_buf: BytesIO) -> BytesIO:
+        """Wrap card image in 720×1280 story canvas."""
+        return self._svc.create_story_image(card_buf)

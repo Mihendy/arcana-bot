@@ -16,6 +16,7 @@ CARD_SIZE = (320, 560)
 CARD_GAP = 40
 CANVAS_MARGIN = 80
 PENTAGRAM_FULL_CANVAS_SIZE = (1600, 1600)
+STORY_CANVAS_SIZE = (720, 1280)
 PENTAGRAM_CARD_SIZE = (256, 448)
 PENTAGRAM_POSITION_CENTERS: dict[int, tuple[int, int]] = {
     1: (800, 260),
@@ -68,6 +69,32 @@ class ImageService:
         canvas.convert("RGB").save(output, format="PNG")
         output.seek(0)
         return output
+
+    def create_story_image(self, card_buf: BytesIO) -> BytesIO:
+        """Wrap an existing card image in a 720×1280 (9:16) story canvas.
+
+        Centers the card on the standard dark background with 60px padding on
+        each side, leaving room for any attachment button at the bottom.
+        """
+        card_buf.seek(0)
+        with Image.open(card_buf) as card_img:
+            canvas = Image.new("RGBA", STORY_CANVAS_SIZE, BACKGROUND_COLOR)
+
+            # Scale card to fit within 600×850 area (leaves padding + bottom space)
+            max_w = STORY_CANVAS_SIZE[0] - 120
+            max_h = int(STORY_CANVAS_SIZE[1] * 0.68)
+            ratio = min(max_w / card_img.width, max_h / card_img.height)
+            new_w = int(card_img.width * ratio)
+            new_h = int(card_img.height * ratio)
+            card_resized = card_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+            x = (STORY_CANVAS_SIZE[0] - new_w) // 2
+            y = (STORY_CANVAS_SIZE[1] - new_h) // 2 - 60  # shift slightly up
+            mask = card_resized if card_resized.mode == "RGBA" else None
+            canvas.paste(card_resized, (x, y), mask)
+
+        self._draw_watermark(canvas, count=1, centered=False)
+        return self._to_png_bytes(canvas)
 
     def create_pentagram_image(self, cards: Sequence[TarotCardLike]) -> BytesIO:
         """Create single 1600x1600 image for pentagram spread.

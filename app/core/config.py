@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     logs_dir: str = "logs"
     admin_tg_id: int = 0
+    admin_vk_id: int = 0
     daily_card_hour_msk: int = 6
     daily_card_timezone: str = "Europe/Moscow"
     bot_public_url: str = "https://t.me/arcana_r_bot"

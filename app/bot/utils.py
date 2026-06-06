@@ -35,6 +35,14 @@ def subscription_line(profile: UserProfileDTO) -> str:
     return "📦 Подписка: Базовый"
 
 
+def daily_limit_line(profile: UserProfileDTO) -> str:
+    """Return daily reading count line, showing ∞ for active premium users."""
+    now = datetime.now(tz=timezone.utc)
+    if profile.premium_expires_at and profile.premium_expires_at > now:
+        return "🌙 Ежедневные расклады: ∞ (премиум)"
+    return f"🌙 Ежедневные расклады: {profile.daily_limit} из 3 осталось"
+
+
 def split_text_by_sentences(text: str, limit: int) -> list[str]:
     """Split text into chunks preserving paragraph/sentence boundaries."""
     if len(text) <= limit:

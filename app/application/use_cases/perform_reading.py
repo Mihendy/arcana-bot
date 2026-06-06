@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from app.application.dto.reading import PerformReadingCommand, ReadingResult
@@ -99,10 +99,17 @@ class PerformReadingUseCase:
         # For existing users: reset daily_limit to 3 if it's a new MSK day,
         # then reject if both counters are still zero.
         # New users (None) pass through — get_or_create gives them limit=3.
+        # Premium users bypass all limit checks entirely.
         existing_user = await self._user_repo.get_by_platform_id(
             cmd.platform, cmd.external_user_id
         )
-        if existing_user is not None:
+        now_utc = datetime.now(timezone.utc)
+        is_premium = (
+            existing_user is not None
+            and existing_user.premium_expires_at is not None
+            and existing_user.premium_expires_at > now_utc
+        )
+        if existing_user is not None and not is_premium:
             msk_today = datetime.now(self._tz).date()
             reset = await self._user_repo.maybe_reset_daily_limit(
                 existing_user.id, msk_today
@@ -152,8 +159,13 @@ class PerformReadingUseCase:
                 external_id=cmd.external_user_id,
                 display_name=cmd.user_display_name,
             )
-            was_bonus_used = user.daily_limit <= 0
-            await self._user_repo.decrement_limits(user.id)
+            premium_active = (
+                user.premium_expires_at is not None
+                and user.premium_expires_at > now_utc
+            )
+            was_bonus_used = not premium_active and user.daily_limit <= 0
+            if not premium_active:
+                await self._user_repo.decrement_limits(user.id)
             await self._reading_repo.create(
                 user_id=user.id,
                 question=cmd.question,

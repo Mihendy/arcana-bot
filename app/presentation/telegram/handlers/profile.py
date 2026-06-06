@@ -10,7 +10,7 @@ from telegram.ext import BaseHandler, CommandHandler, ContextTypes, MessageHandl
 
 from app.application.dto.profile import UserProfileDTO
 from app.application.use_cases.get_user_profile import GetUserProfileUseCase
-from app.bot.utils import subscription_line
+from app.bot.utils import daily_limit_line, subscription_line
 from app.presentation.telegram.di import get_container
 from app.presentation.telegram.formatters.keyboards import PROFILE_BUTTON_TEXT
 
@@ -32,7 +32,7 @@ def _build_profile_text(tg_id: int, bot_username: str, profile: UserProfileDTO) 
         "👤 Ваш профиль\n\n"
         f"🆔 Ваш Telegram ID: {tg_id}\n"
         f"{subscription_line(profile)}\n"
-        f"🌙 Ежедневные расклады: {profile.daily_limit} из 3 осталось\n"
+        f"{daily_limit_line(profile)}\n"
         f"🎁 Бонусные расклады: {profile.bonus_balance}\n\n"
         f"👥 Приглашено друзей: {profile.referrals_count} чел.\n\n"
         f"🔗 Ваша реферальная ссылка: https://t.me/{bot_username}?start=ref_{tg_id}\n\n"

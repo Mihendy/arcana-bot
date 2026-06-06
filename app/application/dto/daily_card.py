@@ -14,5 +14,6 @@ class DailyCardResult:
     card_name: str        # e.g. "The Fool"
     card_slug: str        # e.g. "the-fool" — for i18n or asset lookup
     interpretation: str   # short LLM prediction (1-2 sentences)
-    image_url: str        # public S3/proxy URL of the rendered card image
+    image_url: str              # public S3/proxy URL of the rendered card image
     image_bytes: bytes | None = None  # raw PNG bytes for direct upload; avoids Telegram fetching S3
+    story_image_url: str | None = None  # 720×1280 (9:16) version for VK/social story sharing

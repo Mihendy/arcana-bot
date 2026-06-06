@@ -64,8 +64,10 @@ class VKDailyCardBroadcaster:
             # it to the mini app, so pre-encoding on our side results in the URL
             # still being percent-encoded when JS reads it (VKWebAppShowStoryBox
             # then rejects it with error 5 "Param url incorrect").
+            # Use the 9:16 story image (720×1280) — VK rejects images smaller than that.
+            story_img_url = result.story_image_url or result.image_url
             app_url = f"https://vk.ru/app{self._settings.vk_app_id}"
-            hash_params = f"image_url={result.image_url}&app_url={app_url}"
+            hash_params = f"image_url={story_img_url}&app_url={app_url}"
             story_keyboard = build_story_keyboard(
                 app_id=self._settings.vk_app_id,
                 group_id=self._settings.vk_group_id,

@@ -20,3 +20,7 @@ class IImageRenderer(Protocol):
     def render(self, spread: SpreadResult) -> BytesIO:
         """Render ``spread`` as an in-memory PNG image stream."""
         ...
+
+    def render_story(self, card_buf: BytesIO) -> BytesIO:
+        """Wrap ``card_buf`` (any spread image) in a 720×1280 (9:16) story canvas."""
+        ...
