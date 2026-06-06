@@ -34,3 +34,5 @@ class ReadingResult:
     llm_status: str           # "success" | "guardrail_blocked" | …
     llm_tokens: int | None    # total tokens consumed; None if unavailable
     image_bytes: bytes | None = None  # raw PNG bytes for direct upload; avoids Telegram fetching S3
+    user_id: int = 0          # internal DB user id; used for limit refunds on delivery failure
+    was_bonus_used: bool = False  # True when bonus_balance was decremented (not daily_limit)

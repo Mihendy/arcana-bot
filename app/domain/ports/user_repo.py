@@ -83,6 +83,15 @@ class IUserRepository(Protocol):
         """
         ...
 
+    async def restore_reading_limit(self, user_id: int, was_bonus: bool) -> None:
+        """Undo a single decrement_limits call.
+
+        Increments ``bonus_balance`` when ``was_bonus`` is True (i.e. the bonus
+        counter was the one decremented), otherwise increments ``daily_limit``.
+        Used to refund a reading slot when delivery to the user fails.
+        """
+        ...
+
     async def maybe_reset_daily_limit(self, user_id: int, msk_today: date) -> bool:
         """Reset daily_limit = 3 for this user if last_reset_at is from a
         previous MSK calendar day.

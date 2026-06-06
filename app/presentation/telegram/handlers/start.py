@@ -12,6 +12,7 @@ from typing import Any
 
 from telegram import Update
 from telegram.constants import ChatAction
+from telegram.error import TimedOut
 from telegram.ext import (
     BaseHandler,
     CallbackQueryHandler,
@@ -26,6 +27,8 @@ from app.application.exceptions import InjectionBlockedError, InsufficientLimits
 from app.bot.utils import time_until_midnight_msk
 from app.application.use_cases.perform_reading import PerformReadingUseCase
 from app.application.use_cases.register_user import RegisterUserUseCase
+from app.domain.ports.unit_of_work import IUnitOfWork
+from app.domain.ports.user_repo import IUserRepository
 from app.presentation.telegram.states import TarotState
 from app.domain.entities.tarot import SpreadType
 from app.presentation.telegram.di import get_container
@@ -58,6 +61,10 @@ _LIMITS_EXHAUSTED_TEMPLATE = (
 _INTERPRETATION_FAILED = (
     "Не удалось получить трактовку прямо сейчас. "
     "Попробуй задать вопрос еще раз чуть позже."
+)
+_DELIVERY_FAILED = (
+    "Не удалось отправить результат расклада — связь с Telegram прервалась. "
+    "Попытка не засчитана, задай вопрос ещё раз."
 )
 _UNKNOWN_COMMAND = "Неизвестная команда. Используй /start."
 _SERVICE_UNAVAILABLE = "Сервис временно недоступен. Попробуй позже."
@@ -168,7 +175,23 @@ async def question_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await message.reply_text(_INTERPRETATION_FAILED)
         return
 
-    await send_reading_result(message, result)
+    try:
+        await send_reading_result(message, result)
+    except TimedOut:
+        logger.warning(
+            "reading delivery timed out, refunding limit tg_id=%s user_id=%s",
+            tg_user.id, result.user_id,
+        )
+        try:
+            async with get_container(context)() as di:
+                user_repo: IUserRepository = await di.get(IUserRepository)
+                uow: IUnitOfWork = await di.get(IUnitOfWork)
+                await user_repo.restore_reading_limit(result.user_id, result.was_bonus_used)
+                await uow.commit()
+        except Exception:
+            logger.exception("failed to refund reading limit user_id=%s", result.user_id)
+        await message.reply_text(_DELIVERY_FAILED)
+        return
 
     user_data[_STATE_KEY] = TarotState.WAITING_FOR_QUESTION
     await message.reply_text(

@@ -161,6 +161,21 @@ class PostgresUserRepository:
         )
 
 
+    async def restore_reading_limit(self, user_id: int, was_bonus: bool) -> None:
+        """Undo a single decrement_limits: increments the right counter."""
+        if was_bonus:
+            await self._session.execute(
+                update(UserORM)
+                .where(UserORM.id == user_id)
+                .values(bonus_balance=UserORM.bonus_balance + 1)
+            )
+        else:
+            await self._session.execute(
+                update(UserORM)
+                .where(UserORM.id == user_id)
+                .values(daily_limit=UserORM.daily_limit + 1)
+            )
+
     async def decrement_limits(self, user_id: int) -> None:
         """Atomically consume one reading slot via a single CASE UPDATE.
 
